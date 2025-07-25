@@ -45,5 +45,6 @@ _datas
 datasUFO
 
 ufo_env/
-.env
 google-key.json
+.venv/
+.env
