@@ -1,27 +1,21 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from .. import utils
+import dotenv
+dotenv.load_dotenv()
 
-from art import text2art
-from typing import Tuple
 import queue
-import pyaudio
-import websocket
-import json
-import threading
+import sys
 import time
-from urllib.parse import urlencode
-from dotenv import load_dotenv
-import os
-import assemblyai as aai
-import sounddevice as sd
-from scipy.io.wavfile import write
-import tempfile
-import numpy as np
+from google.cloud import speech
+import pyaudio
+from art import text2art
+from google.api_core import exceptions
+from typing import Tuple
 
-load_dotenv()
-aai.settings.api_key = os.getenv("AssemblyAI_KEY")
+RATE = 16000
+CHUNK = int(RATE / 10)  # 100ms
+TIMEOUT_FROM_RESPONSE = 4
 
 WELCOME_TEXT = """
 Welcome to use UFO🛸, A UI-focused Agent for Windows OS Interaction. 
@@ -30,128 +24,98 @@ Please enter your request to be completed🛸: """.format(
     art=text2art("UFO")
 )
 
-# AssemblyAI 음성 인식 설정 (사용 전 pip install pyaudio websocket-client)
-YOUR_API_KEY = os.getenv("AssemblyAI_KEY")  # 여기에 AssemblyAI API 키를 입력하세요
-CONNECTION_PARAMS = {
-    "sample_rate": 16000,
-    "format_turns": True,
-}
-API_ENDPOINT_BASE_URL = "wss://streaming.assemblyai.com/v3/ws"
-API_ENDPOINT = f"{API_ENDPOINT_BASE_URL}?{urlencode(CONNECTION_PARAMS)}"
-FRAMES_PER_BUFFER = 800
-SAMPLE_RATE = CONNECTION_PARAMS["sample_rate"]
-CHANNELS = 1
-FORMAT = pyaudio.paInt16
-stop_event = threading.Event()
-
-def recognize_speech_assemblyai_streaming(timeout=15):
-    result_queue = queue.Queue()
-    audio = pyaudio.PyAudio()
-    stream = None
-    ws_app = None
-    audio_thread = None
-    stop_event = threading.Event()
-
-    def on_open(ws):
-        def stream_audio():
-            nonlocal stream
-            while not stop_event.is_set():
-                try:
-                    audio_data = stream.read(FRAMES_PER_BUFFER, exception_on_overflow=False)
-                    ws.send(audio_data, websocket.ABNF.OPCODE_BINARY)
-                except Exception:
-                    break
-        nonlocal audio_thread
-        audio_thread = threading.Thread(target=stream_audio)
-        audio_thread.daemon = True
-        audio_thread.start()
-
-    def on_message(ws, message):
-        try:
-            data = json.loads(message)
-            if data.get('type') == "Turn":
-                transcript = data.get('transcript', '')
-                is_final = data.get('turn_is_final', False)
-                is_formatted = data.get('turn_is_formatted', False)
-                if is_final or is_formatted:
-                    print(f"\n[음성 인식 결과] {transcript}")
-                    result_queue.put(transcript)
-                    stop_event.set()
-        except Exception:
-            pass
-
-    def on_error(ws, error):
-        stop_event.set()
-    def on_close(ws, close_status_code, close_msg):
-        stop_event.set()
-        if stream:
-            try:
-                if stream.is_active():
-                    stream.stop_stream()
-            except Exception:
-                pass
-            try:
-                stream.close()
-            except Exception:
-                pass
-        if audio:
-            try:
-                audio.terminate()
-            except Exception:
-                pass
-        if audio_thread and audio_thread.is_alive():
-            audio_thread.join(timeout=1.0)
-
-    try:
-        stream = audio.open(
+class MicrophoneStream:
+    """Opens a recording stream as a generator yielding the audio chunks."""
+    def __init__(self, rate: int = RATE, chunk: int = CHUNK) -> None:
+        self._rate = rate
+        self._chunk = chunk
+        self._buff = queue.Queue()
+        self.closed = True
+    def __enter__(self):
+        self._audio_interface = pyaudio.PyAudio()
+        self._audio_stream = self._audio_interface.open(
+            format=pyaudio.paInt16,
+            channels=1,
+            rate=self._rate,
             input=True,
-            frames_per_buffer=FRAMES_PER_BUFFER,
-            channels=CHANNELS,
-            format=FORMAT,
-            rate=SAMPLE_RATE,
+            frames_per_buffer=self._chunk,
+            stream_callback=self._fill_buffer,
         )
-        print("마이크가 열렸습니다. 말씀하세요... (말이 끝나면 자동으로 인식)")
-    except Exception as e:
-        print(f"마이크 오류: {e}")
-        if audio:
-            audio.terminate()
-        return ""
-    ws_app = websocket.WebSocketApp(
-        API_ENDPOINT,
-        header={"Authorization": YOUR_API_KEY},
-        on_open=on_open,
-        on_message=on_message,
-        on_error=on_error,
-        on_close=on_close,
+        self.closed = False
+        return self
+    def __exit__(self, type, value, traceback):
+        self._audio_stream.stop_stream()
+        self._audio_stream.close()
+        self.closed = True
+        self._buff.put(None)
+        self._audio_interface.terminate()
+    def _fill_buffer(self, in_data, frame_count, time_info, status_flags):
+        self._buff.put(in_data)
+        return None, pyaudio.paContinue
+    def generator(self):
+        while not self.closed:
+            chunk = self._buff.get()
+            if chunk is None:
+                return
+            data = [chunk]
+            while True:
+                try:
+                    chunk = self._buff.get(block=False)
+                    if chunk is None:
+                        return
+                    data.append(chunk)
+                except queue.Empty:
+                    break
+            yield b"".join(data)
+
+def listen_print_loop(responses):
+    transcript = ""
+    try: 
+        for response in responses:
+            if not response.results:
+                continue
+            result = response.results[0]
+            if not result.alternatives:
+                continue
+            transcript = result.alternatives[0].transcript
+            if result.is_final:
+                break
+    except exceptions.DeadlineExceeded:
+        return transcript
+    
+def recognize_speech_assemblyai_streaming():
+    """
+    Recognize speech from the microphone using Google Cloud Speech-to-Text.
+    :param timeout: Not used (kept for compatibility)
+    :return: The recognized transcript.
+    """
+    language_code = "ko-KR"  # or "en-US" for English
+    client = speech.SpeechClient()
+    config = speech.RecognitionConfig(
+        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+        sample_rate_hertz=RATE,
+        language_code=language_code,
     )
-    ws_thread = threading.Thread(target=ws_app.run_forever)
-    ws_thread.daemon = True
-    ws_thread.start()
-    try:
-        transcript = result_queue.get(timeout=timeout)  # timeout 내에 결과가 오면 반환
-    except queue.Empty:
-        transcript = ""
-        print("음성 인식 결과를 받지 못했습니다.")
-    stop_event.set()
-    if ws_app:
-        ws_app.close()
-    ws_thread.join(timeout=2.0)
-    if stream:
+    streaming_config = speech.StreamingRecognitionConfig(
+        config=config, interim_results=True
+    )
+    with MicrophoneStream(RATE, CHUNK) as stream:
+        audio_generator = stream.generator()
+        requests = (
+            speech.StreamingRecognizeRequest(audio_content=content)
+            for content in audio_generator
+        )
+        print("마이크가 열렸습니다. 말씀하세요")
         try:
-            if stream.is_active():
-                stream.stop_stream()
-        except Exception:
-            pass
-        try:
-            stream.close()
-        except Exception:
-            pass
-    if audio:
-        try:
-            audio.terminate()
-        except Exception:
-            pass
-    return transcript
+            from ufo import utils
+            utils.speak_text("마이크가 열렸습니다. 말씀하세요", lang="ko-KR", voice_name="ko-KR-Standard-A")
+        except Exception as e:
+            print(f"[TTS Error] {e}")
+        print("🎤 음성 인식을 시작합니다...")
+        responses = client.streaming_recognize(streaming_config, requests, timeout=TIMEOUT_FROM_RESPONSE)
+        result = listen_print_loop(responses)
+        print(result)
+        return result
 
 
 def first_request() -> str:
@@ -206,12 +170,14 @@ def question_asker(question: str, index: int) -> str:
     :param index: The index of the question.
     :return: The user input.
     """
-
-    utils.print_with_color(
-        """[Question {index}:] {question}""".format(index=index, question=question),
-        "cyan",
-    )
-    
+    from ufo import utils
+    question_text = f"[Question {index}:] {question}"
+    utils.print_with_color(question_text, "cyan")
+    # Speak the question before input
+    try:
+        utils.speak_text(question_text)
+    except Exception as e:
+        print(f"[TTS Error] {e}")
     return input()
 
 

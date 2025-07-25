@@ -335,18 +335,34 @@ class HostAgent(BasicAgent):
             "Plans📚: {plan}".format(plan=plan),
             "cyan",
         )
+        # Speak the plans
+        try:
+            utils.speak_text(f"Plans: {plan}")
+        except Exception as e:
+            print(f"[TTS Error] {e}")
         utils.print_with_color(
             "Next Selected application📲: {application}".format(
                 application=application
             ),
             "yellow",
         )
+        # Speak the next application
+        try:
+            utils.speak_text(f"Next selected application: {application}")
+        except Exception as e:
+            print(f"[TTS Error] {e}")
         utils.print_with_color(
             "Messages to AppAgent📩: {message}".format(message=message), "cyan"
         )
         utils.print_with_color("Status📊: {status}".format(status=status), "blue")
-
-        utils.print_with_color("Comment💬: {comment}".format(comment=comment), "green")
+        # Speak the status
+        try:
+            utils.speak_text(f"Status: {status}")
+        except Exception as e:
+            print(f"[TTS Error] {e}")
+        utils.print_with_color(
+            "Comment💬: {comment}".format(comment=comment), "green"
+        )
 
     @property
     def status_manager(self) -> HostAgentStatus:
