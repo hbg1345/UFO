@@ -162,3 +162,44 @@ def get_hugginface_embedding(
     from langchain_huggingface import HuggingFaceEmbeddings
 
     return HuggingFaceEmbeddings(model_name=model_name)
+
+
+from google.cloud import texttospeech
+from datetime import datetime
+import tempfile
+import os
+
+
+def speak_text(
+    text: str,
+    lang: str = "en-US",
+    voice_name: str = "en-US-Standard-B",
+    speaking_rate: float = 1.0,
+    pitch: float = 0.0
+) -> str:
+    """Generate an English speech file using Google Cloud TTS and return the file path (default: en-US, Standard-B)."""
+    try:
+        client = texttospeech.TextToSpeechClient()
+        synthesis_input = texttospeech.SynthesisInput(text=text)
+        voice = texttospeech.VoiceSelectionParams(
+            language_code=lang,
+            name=voice_name,
+            ssml_gender=texttospeech.SsmlVoiceGender.NEUTRAL
+        )
+        audio_config = texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.MP3,
+            speaking_rate=speaking_rate,
+            pitch=pitch
+        )
+        response = client.synthesize_speech(
+            input=synthesis_input, voice=voice, audio_config=audio_config
+        )
+        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_name = f"gcloud_tts-{voice_name}-{current_time}.mp3"
+        with open(file_name, "wb") as out:
+            out.write(response.audio_content)
+            print(f"✅ 음성 파일 생성 완료: {file_name}")
+        return file_name
+    except Exception as e:
+        print(f"[TTS Error] {e}")
+        return None

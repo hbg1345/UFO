@@ -7,6 +7,8 @@ from datetime import datetime
 from ufo.config.config import Config
 from ufo.module.client import UFOClientManager
 from ufo.module.sessions.session import SessionFactory
+from dotenv import load_dotenv
+load_dotenv()
 
 configs = Config.get_instance().config_data
 
