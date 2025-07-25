@@ -43,3 +43,7 @@ tasks_status.json
 datas
 _datas
 datasUFO
+
+ufo_env/
+.env
+google-key.json
