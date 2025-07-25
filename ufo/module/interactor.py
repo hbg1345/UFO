@@ -3,7 +3,7 @@
 
 import dotenv
 dotenv.load_dotenv()
-
+from ufo import utils
 import queue
 import sys
 import time
@@ -107,7 +107,6 @@ def recognize_speech_assemblyai_streaming():
         )
         print("마이크가 열렸습니다. 말씀하세요")
         try:
-            from ufo import utils
             utils.speak_text("마이크가 열렸습니다. 말씀하세요", lang="ko-KR", voice_name="ko-KR-Standard-A")
         except Exception as e:
             print(f"[TTS Error] {e}")
@@ -131,12 +130,13 @@ def new_request() -> Tuple[str, bool]:
     Ask for a new request.
     :return: The new request and whether the conversation is complete.
     """
-
+    guide = """새로운 요청이 있다면 요청해주시고, N을 누르거나 종료라고 말해주세요."""
     utils.print_with_color(
-        """Please enter your new request. Enter 'N' for exit.""", "cyan"
+        guide, "cyan"
     )
-    request = input()
-    if request.upper() == "N":
+    utils.speak_text(guide, lang="ko-KR", voice_name="ko-KR-Standard-A")
+    request = recognize_speech_assemblyai_streaming()
+    if request.upper() == "N" or request.strip() == "종료":
         complete = True
     else:
         complete = False
@@ -170,7 +170,6 @@ def question_asker(question: str, index: int) -> str:
     :param index: The index of the question.
     :return: The user input.
     """
-    from ufo import utils
     question_text = f"[Question {index}:] {question}"
     utils.print_with_color(question_text, "cyan")
     # Speak the question before input
