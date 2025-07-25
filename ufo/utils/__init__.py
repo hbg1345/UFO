@@ -177,7 +177,7 @@ def speak_text(
     speaking_rate: float = 1.0,
     pitch: float = 0.0
 ) -> str:
-    """Generate an English speech file using Google Cloud TTS and return the file path (default: en-US, Standard-B)."""
+    """Generate an English speech file using Google Cloud TTS, play it with pygame, delete it, and return the file path (default: en-US, Standard-B)."""
     try:
         client = texttospeech.TextToSpeechClient()
         synthesis_input = texttospeech.SynthesisInput(text=text)
@@ -199,6 +199,23 @@ def speak_text(
         with open(file_name, "wb") as out:
             out.write(response.audio_content)
             print(f"✅ 음성 파일 생성 완료: {file_name}")
+        # Play the audio file with pygame only
+        try:
+            import pygame
+            pygame.mixer.init()
+            pygame.mixer.music.load(file_name)
+            pygame.mixer.music.play()
+            while pygame.mixer.music.get_busy():
+                continue
+            pygame.mixer.music.unload()  # Release file handle
+        except Exception as e2:
+            print(f"[TTS Playback Error] pygame: {e2}\n(Install with: pip install pygame)")
+        # Delete the audio file after playback
+        try:
+            os.remove(file_name)
+            print(f"🗑️ 음성 파일 삭제 완료: {file_name}")
+        except Exception as e:
+            print(f"[TTS File Delete Error] {e}")
         return file_name
     except Exception as e:
         print(f"[TTS Error] {e}")
