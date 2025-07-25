@@ -15,7 +15,7 @@ from typing import Tuple
 
 RATE = 16000
 CHUNK = int(RATE / 10)  # 100ms
-TIMEOUT_FROM_RESPONSE = 4
+TIMEOUT_FROM_RESPONSE = 6
 
 WELCOME_TEXT = """
 Welcome to use UFO🛸, A UI-focused Agent for Windows OS Interaction. 
