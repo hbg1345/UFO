@@ -111,6 +111,12 @@ def recognize_speech_assemblyai_streaming(timeout=15):
             rate=SAMPLE_RATE,
         )
         print("마이크가 열렸습니다. 말씀하세요... (말이 끝나면 자동으로 인식)")
+        # Speak the mic open message
+        try:
+            from ufo import utils
+            utils.speak_text("마이크가 열렸습니다. 말씀하세요")
+        except Exception as e:
+            print(f"[TTS Error] {e}")
     except Exception as e:
         print(f"마이크 오류: {e}")
         if audio:
@@ -206,12 +212,14 @@ def question_asker(question: str, index: int) -> str:
     :param index: The index of the question.
     :return: The user input.
     """
-
-    utils.print_with_color(
-        """[Question {index}:] {question}""".format(index=index, question=question),
-        "cyan",
-    )
-    
+    from ufo import utils
+    question_text = f"[Question {index}:] {question}"
+    utils.print_with_color(question_text, "cyan")
+    # Speak the question before input
+    try:
+        utils.speak_text(question_text)
+    except Exception as e:
+        print(f"[TTS Error] {e}")
     return input()
 
 

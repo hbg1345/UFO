@@ -355,8 +355,14 @@ class HostAgent(BasicAgent):
             "Messages to AppAgent📩: {message}".format(message=message), "cyan"
         )
         utils.print_with_color("Status📊: {status}".format(status=status), "blue")
-
-        utils.print_with_color("Comment💬: {comment}".format(comment=comment), "green")
+        # Speak the status
+        try:
+            utils.speak_text(f"Status: {status}")
+        except Exception as e:
+            print(f"[TTS Error] {e}")
+        utils.print_with_color(
+            "Comment💬: {comment}".format(comment=comment), "green"
+        )
 
     @property
     def status_manager(self) -> HostAgentStatus:
