@@ -105,9 +105,9 @@ def recognize_speech_assemblyai_streaming():
             speech.StreamingRecognizeRequest(audio_content=content)
             for content in audio_generator
         )
-        print("마이크가 열렸습니다. 말씀하세요")
+        print("무엇을 도와드릴까요?")
         try:
-            utils.speak_text("마이크가 열렸습니다. 말씀하세요", lang="ko-KR", voice_name="ko-KR-Standard-A")
+            utils.speak_text("무엇을 도와드릴까요?", lang="ko-KR")
         except Exception as e:
             print(f"[TTS Error] {e}")
         print("🎤 음성 인식을 시작합니다...")
@@ -130,11 +130,11 @@ def new_request() -> Tuple[str, bool]:
     Ask for a new request.
     :return: The new request and whether the conversation is complete.
     """
-    guide = """새로운 요청이 있다면 요청해주시고, N을 누르거나 종료라고 말해주세요."""
+    guide = """또 무엇을 도와드릴까요? 종료를 원하면 종료라고 말해주세요."""
     utils.print_with_color(
         guide, "cyan"
     )
-    utils.speak_text(guide, lang="ko-KR", voice_name="ko-KR-Standard-A")
+    utils.speak_text(guide, lang="ko-KR")
     request = recognize_speech_assemblyai_streaming()
     if request.upper() == "N" or request.strip() == "종료":
         complete = True
