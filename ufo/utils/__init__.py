@@ -173,7 +173,6 @@ import os
 def speak_text(
     text: str,
     lang: str = "en-US",
-    voice_name: str = "en-US-Standard-B",
     speaking_rate: float = 1.0,
     pitch: float = 0.0
 ) -> str:
@@ -181,6 +180,10 @@ def speak_text(
     try:
         client = texttospeech.TextToSpeechClient()
         synthesis_input = texttospeech.SynthesisInput(text=text)
+        if lang == "ko-KR":
+            voice_name = "ko-KR-Standard-C"
+        else:
+            voice_name = "en-US-Standard-D"
         voice = texttospeech.VoiceSelectionParams(
             language_code=lang,
             name=voice_name,
