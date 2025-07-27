@@ -115,8 +115,8 @@ class BaseProcessor(ABC):
 
                 return
 
-            # Step 8: Execute the action.
-            self.execute_action()
+            # # Step 8: Execute the action.
+            # self.execute_action()
 
             # Step 9: Update the memory.
             self.update_memory()

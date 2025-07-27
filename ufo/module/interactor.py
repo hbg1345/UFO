@@ -106,12 +106,12 @@ def recognize_speech_assemblyai_streaming():
             for content in audio_generator
         )
         print("무엇을 도와드릴까요?")
-        # try:
-        #     utils.speak_text("무엇을 도와드릴까요?", lang="ko-KR")
-        # except Exception as e:
-        #     print(f"[TTS Error] {e}")
+        try:
+            utils.speak_text("무엇을 도와드릴까요?", lang="ko-KR")
+        except Exception as e:
+            print(f"[TTS Error] {e}")
         print("🎤 음성 인식을 시작합니다...")
-        return input()
+        # return input()
         responses = client.streaming_recognize(streaming_config, requests, timeout=TIMEOUT_FROM_RESPONSE)
         result = listen_print_loop(responses)
         print(result)
@@ -174,10 +174,10 @@ def question_asker(question: str, index: int) -> str:
     question_text = f"[Question {index}:] {question}"
     utils.print_with_color(question_text, "cyan")
     # Speak the question before input
-    # try:
-    #     utils.speak_text(question_text)
-    # except Exception as e:
-    #     print(f"[TTS Error] {e}")
+    try:
+        utils.speak_text(question_text)
+    except Exception as e:
+        print(f"[TTS Error] {e}")
     return input()
 
 

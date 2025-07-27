@@ -299,68 +299,47 @@ class HostAgent(BasicAgent):
 
     def print_response(self, response_dict: Dict) -> None:
         """
-        Print the response.
+        Print the response in the new simplified format.
         :param response_dict: The response dictionary to print.
         """
 
-        application = response_dict.get("ControlText")
-        if not application:
-            application = "[The required application needs to be opened.]"
-        observation = response_dict.get("Observation")
-        thought = response_dict.get("Thought")
+        observation = response_dict.get("Observation", "")
+        thought = response_dict.get("Thought", "")
+        response = response_dict.get("Response", "")
+        comment = response_dict.get("Comment", "")
         bash_command = response_dict.get("Bash", None)
-        subtask = response_dict.get("CurrentSubtask")
 
-        # Convert the message from a list to a string.
-        message = list(response_dict.get("Message", ""))
-        message = "\n".join(message)
-
-        # Concatenate the subtask with the plan and convert the plan from a list to a string.
-        plan = list(response_dict.get("Plan"))
-        plan = [subtask] + plan
-        plan = "\n".join([f"({i+1}) " + str(item) for i, item in enumerate(plan)])
-
-        status = response_dict.get("Status")
-        comment = response_dict.get("Comment")
-
-        utils.print_with_color(
-            "Observations👀: {observation}".format(observation=observation), "cyan"
-        )
-        utils.print_with_color("Thoughts💡: {thought}".format(thought=thought), "green")
+        utils.print_with_color("=== HostAgent Response ===", "cyan")
+        
+        if observation:
+            utils.print_with_color("Observation:", "yellow")
+            utils.print_with_color(observation, "white")
+            print()
+        
+        if thought:
+            utils.print_with_color("Thought:", "green")
+            utils.print_with_color(thought, "white")
+            print()
+        
+        if response:
+            utils.print_with_color("Response:", "green")
+            utils.print_with_color(response, "white")
+            utils.speak_text(response, lang="ko-KR")
+            print()
+        
         if bash_command:
             utils.print_with_color(
-                "Running Bash Command🔧: {bash}".format(bash=bash_command), "yellow"
+                "Running Bash Command:", "yellow"
             )
-        utils.print_with_color(
-            "Plans📚: {plan}".format(plan=plan),
-            "cyan",
-        )
-        # plans 음성 출력 제거
-        utils.print_with_color(
-            "Next Selected application📲: {application}".format(
-                application=application
-            ),
-            "yellow",
-        )
-        # Speak the next application
-        try:
-            utils.speak_text(f"{application}")
-            utils.speak_text("앱을 실행합니다", lang="ko-KR")
-        except Exception as e:
-            print(f"[TTS Error] {e}")
-        utils.print_with_color(
-            "Messages to AppAgent📩: {message}".format(message=message), "cyan"
-        )
-        # messages to appagent 음성 출력 제거
-        utils.print_with_color("Status📊: {status}".format(status=status), "blue")
-        # Speak the status
-        try:
-            utils.speak_text(f"{status}")
-        except Exception as e:
-            print(f"[TTS Error] {e}")
-        utils.print_with_color(
-            "Comment💬: {comment}".format(comment=comment), "green"
-        )
+            utils.print_with_color(bash_command, "white")
+            print()
+        
+        if comment:
+            utils.print_with_color("Additional Info:", "blue")
+            utils.print_with_color(comment, "white")
+            print()
+        
+        print()
 
     @property
     def status_manager(self) -> HostAgentStatus:

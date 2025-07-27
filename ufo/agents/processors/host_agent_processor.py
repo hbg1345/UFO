@@ -215,7 +215,6 @@ class HostAgentProcessor(BaseProcessor):
         self.plan = self.string2list(self._response_json.get("Plan", ""))
         self._response_json["Plan"] = self.plan
 
-        self.status = self._response_json.get("Status", "")
         self.question_list = self._response_json.get("Questions", [])
         self.bash_command = self._response_json.get("Bash", None)
 
@@ -227,7 +226,6 @@ class HostAgentProcessor(BaseProcessor):
         """
         Execute the action.
         """
-
         new_app_window = self._desktop_windows_dict.get(self.control_label, None)
 
         # If the new application window is available, select the application.
@@ -239,10 +237,8 @@ class HostAgentProcessor(BaseProcessor):
             self._run_shell_command()
             time.sleep(5)
 
-        # If the new application window is None and the bash command is None, set the status to FINISH.
-        if new_app_window is None and self.bash_command is None:
-            self.status = self._agent_status_manager.FINISH.value
-            return
+        # Always continue the conversation
+        self.status = self._agent_status_manager.CONTINUE.value
 
     def _is_window_interface_available(self, new_app_window: UIAWrapper) -> bool:
         """
