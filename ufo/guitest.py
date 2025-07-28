@@ -1,6 +1,7 @@
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QPushButton, QPlainTextEdit,
-                                QVBoxLayout, QWidget, QProgressBar)
-from PyQt5.QtCore import QProcess, QProcessEnvironment
+                                QVBoxLayout, QWidget, QDesktopWidget)
+from PyQt5.QtCore import QProcess, QProcessEnvironment, Qt, QSize
+from PyQt5.QtGui import QIcon
 import sys
 import os
 
@@ -11,8 +12,20 @@ class MainWindow(QMainWindow):
 
         self.p = None
 
-        self.btn = QPushButton("Execute")
+        self.setWindowTitle("INO")
+
+        icon = QIcon()
+        icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "ino_window_logo.png")
+        icon.addFile(icon_path, QSize(32, 32))
+        self.setWindowIcon(icon)
+        
+        # 화면 오른쪽 하단에 위치시키기
+        self.resize(400, 300)  # 창 크기 설정
+        self.setWindowFlags(Qt.WindowStaysOnTopHint)
+
+        self.btn = QPushButton("요청하기")
         self.btn.pressed.connect(self.start_process)
+        
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
 
@@ -24,6 +37,32 @@ class MainWindow(QMainWindow):
         w.setLayout(l)
 
         self.setCentralWidget(w)
+
+    def showEvent(self, event):
+        """창이 표시될 때 호출되는 이벤트 - 정확한 위치 계산"""
+        super().showEvent(event)
+        self.move_to_bottom_right()
+
+    def move_to_bottom_right(self):
+        """창을 화면 오른쪽 하단으로 이동"""
+        # 데스크톱 화면 정보 가져오기
+        desktop = QDesktopWidget()
+        screen_geometry = desktop.availableGeometry()  # 사용 가능한 화면 영역 (작업표시줄 제외)
+
+        # 창의 실제 크기 가져오기 (프레임 포함)
+        window_rect = self.frameGeometry()  # 프레임 포함된 전체 크기
+        window_width = window_rect.width()
+        window_height = window_rect.height()
+
+        # 안전한 여백 (작업표시줄 높이 고려)
+        margin = 20
+
+        # 화면 경계 내에서 계산
+        x = max(0, screen_geometry.width() - window_width - margin)
+        y = max(0, screen_geometry.height() - window_height - margin)
+        
+        # 창 위치 이동
+        self.move(x, y)
 
     def message(self, s):
         self.text.appendPlainText(s)
