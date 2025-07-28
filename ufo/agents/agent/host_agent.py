@@ -344,8 +344,7 @@ class HostAgent(BasicAgent):
         )
         # Speak the next application
         try:
-            utils.speak_text(f"{application}")
-            utils.speak_text("앱을 실행합니다", lang="ko-KR")
+            utils.speak_text(f"{application} 앱을 실행합니다", lang="ko-KR")
         except Exception as e:
             print(f"[TTS Error] {e}")
         utils.print_with_color(
