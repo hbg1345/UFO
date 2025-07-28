@@ -142,6 +142,7 @@ class AppAgentProcessor(BaseProcessor):
         self.control_filter_factory = ControlFilterFactory()
         self.control_recorder = ControlInfoRecorder()
         self.filtered_annotation_dict = None
+        self.filtered_control_info = []
         self.screenshot_save_path = None
         self.grounding_service = ground_service
 
@@ -259,13 +260,9 @@ class AppAgentProcessor(BaseProcessor):
         """
         Capture the screenshot.
         """
-
-        # Define the paths for the screenshots saved.
         screenshot_save_path = self.log_path + f"action_step{self.session_step}.png"
-        self.screenshot_save_path = screenshot_save_path
-
         annotated_screenshot_save_path = (
-            self.log_path + f"action_step{self.session_step}_annotated.png"
+            self.log_path + f"action_step{self.session_step}_selected_controls.png"
         )
         concat_screenshot_save_path = (
             self.log_path + f"action_step{self.session_step}_concat.png"
@@ -279,9 +276,24 @@ class AppAgentProcessor(BaseProcessor):
             }
         )
 
-        self.photographer.capture_app_window_screenshot(
-            self.application_window, save_path=screenshot_save_path
-        )
+        # Check if this is web automation (no specific application window)
+        if self.application_window is None:
+            # For web automation, capture desktop screenshot
+            utils.print_with_color("웹 자동화를 위해 데스크톱 스크린샷을 캡처합니다.", "cyan")
+            self.photographer.capture_desktop_screen_screenshot(
+                all_screens=True, save_path=screenshot_save_path
+            )
+            
+            # For web automation, we don't need control info or annotation
+            self._image_url = [
+                self.photographer.encode_image_from_path(screenshot_save_path)
+            ]
+            return
+        else:
+            # Normal application window screenshot
+            self.photographer.capture_app_window_screenshot(
+                self.application_window, save_path=screenshot_save_path
+            )
 
         # Record the control information for the current application window.
         self.control_recorder.application_windows_info = (
@@ -289,16 +301,6 @@ class AppAgentProcessor(BaseProcessor):
                 self.application_window, field_list=ControlInfoRecorder.recording_fields
             )
         )
-
-        # # Get the control elements in the application window if the control items are not provided for reannotation.
-        # if type(self.control_reannotate) == list and len(self.control_reannotate) > 0:
-        #     control_list = self.control_reannotate
-        # else:
-        #     control_list = self.control_inspector.find_control_elements_in_descendants(
-        #         self.application_window,
-        #         control_type_list=configs.get("CONTROL_LIST", []),
-        #         class_name_list=configs.get("CONTROL_LIST", []),
-        #     )
 
         control_list = self.get_control_list(screenshot_save_path)
 
@@ -390,11 +392,19 @@ class AppAgentProcessor(BaseProcessor):
         """
         Get the control information.
         """
-
-        # Get the control information for the control items and the filtered control items, in a format of list of dictionaries.
-        self._control_info = self.control_inspector.get_control_info_list_of_dict(
-            self._annotation_dict,
-            ["control_text", "control_type" if BACKEND == "uia" else "control_class"],
+        # Check if this is web automation (no specific application window)
+        if self.application_window is None:
+            # For web automation, we don't need control info
+            utils.print_with_color("웹 자동화이므로 컨트롤 정보 수집을 건너뜁니다.", "cyan")
+            self._control_info = []
+            self.filtered_control_info = []
+            return
+        
+        # Normal control info collection
+        self._control_info = self.control_inspector.find_control_elements_in_descendants(
+            self.application_window,
+            control_type_list=configs.get("CONTROL_LIST", []),
+            class_name_list=configs.get("CONTROL_LIST", []),
         )
         self.filtered_control_info = (
             self.control_inspector.get_control_info_list_of_dict(
@@ -431,9 +441,12 @@ class AppAgentProcessor(BaseProcessor):
 
         external_knowledge_prompt = offline_docs + online_docs
 
-        if not self.app_agent.blackboard.is_empty():
-            blackboard_prompt = self.app_agent.blackboard.blackboard_to_prompt()
+        # Check if app_agent has a host before accessing blackboard
+        blackboard = self.app_agent.blackboard
+        if blackboard is not None and not blackboard.is_empty():
+            blackboard_prompt = blackboard.blackboard_to_prompt()
         else:
+            # If no host is set or blackboard is empty, use empty blackboard prompt
             blackboard_prompt = []
 
         # Get the last successful actions of the AppAgent.
@@ -526,8 +539,16 @@ class AppAgentProcessor(BaseProcessor):
         self.question_list = self._response_json.get("Questions", [])
         self._args = utils.revise_line_breaks(self._response_json.get("Args", ""))
 
-        # Convert the plan from a string to a list if the plan is a string.
-        self.plan = self.string2list(self._response_json.get("Plan", ""))
+        # Use the plan passed from HostAgent if available, otherwise use LLM's plan
+        if hasattr(self, 'plan') and self.plan and isinstance(self.plan, list) and len(self.plan) > 0:
+            # Use the plan from HostAgent (web automation plan)
+            utils.print_with_color("HostAgent에서 전달받은 계획을 사용합니다.", "green")
+            # self.plan is already set from HostAgent
+        else:
+            # Use LLM's plan (normal UI automation)
+            utils.print_with_color("LLM의 계획을 사용합니다.", "yellow")
+            self.plan = self.string2list(self._response_json.get("Plan", ""))
+        
         self._response_json["Plan"] = self.plan
 
         self.status = self._response_json.get("Status", "")
@@ -541,7 +562,26 @@ class AppAgentProcessor(BaseProcessor):
         """
         Execute the action.
         """
+        # Debug: Print the plan and other attributes
+        utils.print_with_color(f"AppAgentProcessor execute_action 시작", "magenta")
+        utils.print_with_color(f"self.plan: {getattr(self, 'plan', 'NOT_SET')}", "yellow")
+        utils.print_with_color(f"self.plan type: {type(getattr(self, 'plan', None))}", "yellow")
+        utils.print_with_color(f"self.plan length: {len(getattr(self, 'plan', [])) if getattr(self, 'plan', None) else 0}", "yellow")
+        
+        # Check if we have a web plan from HostAgent
+        if hasattr(self, 'plan') and self.plan and isinstance(self.plan, list) and len(self.plan) > 0:
+            utils.print_with_color("웹 계획을 발견했습니다. _execute_web_plan()을 호출합니다.", "green")
+            # Execute web plan from HostAgent
+            self._execute_web_plan()
+            return
 
+        # Check if this is a web automation action
+        if self._is_web_action():
+            utils.print_with_color("웹 액션을 발견했습니다. _execute_web_action()을 호출합니다.", "green")
+            self._execute_web_action()
+            return
+
+        utils.print_with_color("일반 액션을 실행합니다.", "cyan")
         action = OneStepAction(
             function=self._operation,
             args=self._args,
@@ -564,6 +604,145 @@ class AppAgentProcessor(BaseProcessor):
         if self.is_application_closed():
             utils.print_with_color("Warning: The application is closed.", "yellow")
             self.status = "FINISH"
+
+    def _is_web_action(self) -> bool:
+        """
+        Check if the current action is web-related.
+        :return: True if web action, False otherwise.
+        """
+        web_functions = [
+            "navigate_to_url", "click_element", "input_text", 
+            "get_page_source", "get_clickable_elements"
+        ]
+        return self._operation in web_functions
+
+    def _execute_web_action(self) -> None:
+        """
+        Execute web automation action using Selenium.
+        """
+        try:
+            from ufo.automator.app_apis.web.selenium_webclient import SeleniumWebReceiver
+            
+            # Create Selenium receiver if not exists
+            if not hasattr(self, '_selenium_receiver') or self._selenium_receiver is None:
+                self._selenium_receiver = SeleniumWebReceiver()
+            
+            utils.print_with_color(f"웹 자동화 실행: {self._operation}", "green")
+            
+            # Execute the web action
+            if self._operation == "navigate_to_url":
+                url = self._args.get("url", "")
+                result = self._selenium_receiver.navigate_to_url(url)
+                utils.print_with_color(f"네비게이션 결과: {result}", "cyan")
+                
+            elif self._operation == "click_element":
+                text = self._args.get("text", "")
+                element_type = self._args.get("element_type", "any")
+                result = self._selenium_receiver.click_element(text, element_type)
+                utils.print_with_color(f"클릭 결과: {result}", "cyan")
+                
+            elif self._operation == "input_text":
+                text = self._args.get("text", "")
+                selector = self._args.get("selector", "")
+                clear_first = self._args.get("clear_first", True)
+                result = self._selenium_receiver.input_text(text, selector, clear_first)
+                utils.print_with_color(f"텍스트 입력 결과: {result}", "cyan")
+                
+            elif self._operation == "get_page_source":
+                result = self._selenium_receiver.get_page_source()
+                utils.print_with_color("페이지 소스 가져오기 완료", "cyan")
+                
+            elif self._operation == "get_clickable_elements":
+                result = self._selenium_receiver.get_all_clickable_elements()
+                utils.print_with_color(f"클릭 가능한 요소 {len(result)}개 발견", "cyan")
+                
+            else:
+                utils.print_with_color(f"지원하지 않는 웹 액션: {self._operation}", "red")
+                return
+            
+            # Update status to continue
+            self.status = self._agent_status_manager.CONTINUE.value
+            
+        except Exception as e:
+            utils.print_with_color(f"웹 자동화 실행 중 오류: {e}", "red")
+            self.status = self._agent_status_manager.ERROR.value
+
+    def _execute_web_plan(self) -> None:
+        """
+        Execute web automation plan from HostAgent.
+        """
+        try:
+            from ufo.automator.app_apis.web.selenium_webclient import SeleniumWebReceiver
+            
+            utils.print_with_color("_execute_web_plan 메서드 시작", "magenta")
+            utils.print_with_color(f"실행할 웹 계획: {self.plan}", "cyan")
+            
+            # Create Selenium receiver if not exists
+            if not hasattr(self, '_selenium_receiver') or self._selenium_receiver is None:
+                utils.print_with_color("Selenium receiver를 생성합니다.", "yellow")
+                self._selenium_receiver = SeleniumWebReceiver()
+            
+            utils.print_with_color("HostAgent의 웹 자동화 계획을 실행합니다.", "green")
+            
+            # Execute each step in the web plan
+            for i, step in enumerate(self.plan):
+                utils.print_with_color(f"단계 {i+1} 실행 중...", "cyan")
+                
+                if isinstance(step, dict) and 'function' in step and 'args' in step:
+                    function = step['function']
+                    args = step['args']
+                    
+                    utils.print_with_color(f"단계 {i+1}: {function} 실행 (args: {args})", "cyan")
+                    
+                    # Execute the web action
+                    if function == "navigate_to_url":
+                        url = args.get("url", "")
+                        utils.print_with_color(f"URL로 이동: {url}", "green")
+                        result = self._selenium_receiver.navigate_to_url(url)
+                        utils.print_with_color(f"네비게이션 결과: {result}", "cyan")
+                        
+                    elif function == "click_element":
+                        text = args.get("text", "")
+                        element_type = args.get("element_type", "any")
+                        utils.print_with_color(f"요소 클릭: {text} ({element_type})", "green")
+                        result = self._selenium_receiver.click_element(text, element_type)
+                        utils.print_with_color(f"클릭 결과: {result}", "cyan")
+                        
+                    elif function == "input_text":
+                        text = args.get("text", "")
+                        selector = args.get("selector", "")
+                        clear_first = args.get("clear_first", True)
+                        utils.print_with_color(f"텍스트 입력: {text} (selector: {selector})", "green")
+                        result = self._selenium_receiver.input_text(text, selector, clear_first)
+                        utils.print_with_color(f"텍스트 입력 결과: {result}", "cyan")
+                        
+                    elif function == "get_page_source":
+                        utils.print_with_color("페이지 소스 가져오기", "green")
+                        result = self._selenium_receiver.get_page_source()
+                        utils.print_with_color("페이지 소스 가져오기 완료", "cyan")
+                        
+                    elif function == "get_clickable_elements":
+                        utils.print_with_color("클릭 가능한 요소들 가져오기", "green")
+                        result = self._selenium_receiver.get_all_clickable_elements()
+                        utils.print_with_color(f"클릭 가능한 요소 {len(result)}개 발견", "cyan")
+                        
+                    else:
+                        utils.print_with_color(f"지원하지 않는 웹 액션: {function}", "red")
+                        continue
+                    
+                    # Small delay between actions
+                    import time
+                    time.sleep(1)
+                else:
+                    utils.print_with_color(f"단계 {i+1}: {step} (텍스트 단계)", "yellow")
+            
+            # Update status to continue
+            self.status = self._agent_status_manager.CONTINUE.value
+            utils.print_with_color("웹 자동화 계획 실행 완료", "green")
+            
+        except Exception as e:
+            utils.print_with_color(f"웹 자동화 계획 실행 중 오류: {e}", "red")
+            self.status = self._agent_status_manager.ERROR.value
 
     def capture_control_screenshot(
         self, control_selected: Union[UIAWrapper, List[UIAWrapper]]

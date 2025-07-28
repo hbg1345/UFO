@@ -165,6 +165,8 @@ class HostAgent(BasicAgent):
         prev_subtask: List[Dict[str, str]],
         request: str,
         blackboard_prompt: List[Dict[str, str]],
+        html_source: str = "",
+        selenium_status: str = "",
     ) -> List[Dict[str, Union[str, List[Dict[str, str]]]]]:
         """
         Construct the message.
@@ -173,6 +175,9 @@ class HostAgent(BasicAgent):
         :param prev_subtask: The previous subtask.
         :param plan: The plan.
         :param request: The request.
+        :param blackboard_prompt: The blackboard prompt.
+        :param html_source: The HTML source code for web automation.
+        :param selenium_status: The status of Selenium WebDriver.
         :return: The message.
         """
         hostagent_prompt_system_message = self.prompter.system_prompt_construction()
@@ -182,6 +187,8 @@ class HostAgent(BasicAgent):
             prev_subtask=prev_subtask,
             prev_plan=plan,
             user_request=request,
+            html_source=html_source,
+            selenium_status=selenium_status,
         )
 
         if blackboard_prompt:
@@ -324,7 +331,7 @@ class HostAgent(BasicAgent):
         if response:
             utils.print_with_color("Response:", "green")
             utils.print_with_color(response, "white")
-            utils.speak_text(response, lang="ko-KR")
+            # utils.speak_text(response, lang="ko-KR")  # TTS 비활성화
             print()
         
         if bash_command:
