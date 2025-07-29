@@ -1,0 +1,69 @@
+navigate_to_url:
+  summary: |-
+    "navigate_to_url"는 지정된 URL로 브라우저를 이동시킵니다.
+  class_name: |-
+    NavigateToUrlCommand
+  usage: |-
+    [1] API 호출: navigate_to_url(url: str)
+    [2] 인수:
+      - url: 이동할 웹페이지의 URL (예: "https://www.google.com")
+    [3] 예시: navigate_to_url(url="https://www.google.com")
+    [4] 사용 가능한 컨트롤: 모든 웹페이지
+    [5] 반환값: 성공/실패 메시지
+
+click_element:
+  summary: |-
+    "click_element"는 웹페이지에서 특정 텍스트를 가진 요소를 클릭합니다.
+  class_name: |-
+    ClickElementCommand
+  usage: |-
+    [1] API 호출: click_element(text: str, element_type: str = "any")
+    [2] 인수:
+      - text: 클릭할 요소의 텍스트 내용
+      - element_type: 요소 타입 ("button", "link", "any" 중 선택, 기본값: "any")
+    [3] 예시: 
+      - click_element(text="검색", element_type="button")
+      - click_element(text="로그인", element_type="link")
+    [4] 사용 가능한 컨트롤: 모든 클릭 가능한 웹 요소
+    [5] 반환값: 성공/실패 메시지
+
+input_text:
+  summary: |-
+    "input_text"는 웹페이지의 입력 필드에 텍스트를 입력합니다.
+  class_name: |-
+    InputTextCommand
+  usage: |-
+    [1] API 호출: input_text(text: str, selector: str, clear_first: bool = True)
+    [2] 인수:
+      - text: 입력할 텍스트
+      - selector: 입력 필드의 CSS 선택자 또는 XPath (예: "#search", "//input[@name='q']")
+      - clear_first: 기존 텍스트를 먼저 지울지 여부 (기본값: True)
+    [3] 예시: 
+      - input_text(text="검색어", selector="#search")
+      - input_text(text="사용자명", selector="//input[@name='username']")
+    [4] 사용 가능한 컨트롤: 모든 입력 필드
+    [5] 반환값: 성공/실패 메시지
+
+get_page_source:
+  summary: |-
+    "get_page_source"는 현재 웹페이지의 HTML 소스를 가져옵니다.
+  class_name: |-
+    GetPageSourceCommand
+  usage: |-
+    [1] API 호출: get_page_source()
+    [2] 인수: 없음
+    [3] 예시: get_page_source()
+    [4] 사용 가능한 컨트롤: 모든 웹페이지
+    [5] 반환값: HTML 소스 코드
+
+get_clickable_elements:
+  summary: |-
+    "get_clickable_elements"는 현재 웹페이지에서 클릭 가능한 모든 요소들의 정보를 가져옵니다.
+  class_name: |-
+    GetClickableElementsCommand
+  usage: |-
+    [1] API 호출: get_clickable_elements()
+    [2] 인수: 없음
+    [3] 예시: get_clickable_elements()
+    [4] 사용 가능한 컨트롤: 모든 웹페이지
+    [5] 반환값: 클릭 가능한 요소들의 JSON 배열 (타입, 텍스트, 위치, 크기 정보 포함) 

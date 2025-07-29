@@ -210,8 +210,20 @@ class AppAgent(BasicAgent):
                 "Action applied⚒️: {action}".format(action=action), "blue"
             )
             utils.print_with_color("Status📊: {status}".format(status=status), "blue")
+
+        # Handle different plan formats
+        if plan and isinstance(plan, list):
+            if len(plan) > 0 and isinstance(plan[0], dict):
+                # Plan is a list of dictionaries (web automation plan)
+                plan_str = "\n".join([f"{i+1}. {step.get('function', 'unknown')}({step.get('args', {})})" for i, step in enumerate(plan)])
+            else:
+                # Plan is a list of strings (normal plan)
+                plan_str = "\n".join(plan)
+        else:
+            plan_str = str(plan) if plan else "No plan"
+
         utils.print_with_color(
-            "Next Plan📚: {plan}".format(plan="\n".join(plan)), "cyan"
+            "Next Plan📚: {plan}".format(plan=plan_str), "cyan"
         )
         utils.print_with_color("Comment💬: {comment}".format(comment=comment), "green")
 

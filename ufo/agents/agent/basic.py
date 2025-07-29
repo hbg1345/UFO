@@ -100,11 +100,13 @@ class BasicAgent(ABC):
         return self._name
 
     @property
-    def blackboard(self) -> Blackboard:
+    def blackboard(self) -> Optional[Blackboard]:
         """
         Get the blackboard.
-        :return: The blackboard.
+        :return: The blackboard or None if no host is set.
         """
+        if self.host is None:
+            return None
         return self.host.blackboard
 
     def create_puppeteer_interface(self) -> puppeteer.AppPuppeteer:

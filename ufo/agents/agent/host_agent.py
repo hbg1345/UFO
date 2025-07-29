@@ -165,6 +165,8 @@ class HostAgent(BasicAgent):
         prev_subtask: List[Dict[str, str]],
         request: str,
         blackboard_prompt: List[Dict[str, str]],
+        html_source: str = "",
+        selenium_status: str = "",
     ) -> List[Dict[str, Union[str, List[Dict[str, str]]]]]:
         """
         Construct the message.
@@ -173,6 +175,9 @@ class HostAgent(BasicAgent):
         :param prev_subtask: The previous subtask.
         :param plan: The plan.
         :param request: The request.
+        :param blackboard_prompt: The blackboard prompt.
+        :param html_source: The HTML source code for web automation.
+        :param selenium_status: The status of Selenium WebDriver.
         :return: The message.
         """
         hostagent_prompt_system_message = self.prompter.system_prompt_construction()
@@ -182,6 +187,8 @@ class HostAgent(BasicAgent):
             prev_subtask=prev_subtask,
             prev_plan=plan,
             user_request=request,
+            html_source=html_source,
+            selenium_status=selenium_status,
         )
 
         if blackboard_prompt:
@@ -299,37 +306,37 @@ class HostAgent(BasicAgent):
 
     def print_response(self, response_dict: Dict) -> None:
         """
-        Print the response.
+        Print the response in the new simplified format.
         :param response_dict: The response dictionary to print.
         """
 
-        application = response_dict.get("ControlText")
-        if not application:
-            application = "[The required application needs to be opened.]"
-        observation = response_dict.get("Observation")
-        thought = response_dict.get("Thought")
+        observation = response_dict.get("Observation", "")
+        thought = response_dict.get("Thought", "")
+        response = response_dict.get("Response", "")
+        comment = response_dict.get("Comment", "")
         bash_command = response_dict.get("Bash", None)
-        subtask = response_dict.get("CurrentSubtask")
 
-        # Convert the message from a list to a string.
-        message = list(response_dict.get("Message", ""))
-        message = "\n".join(message)
-
-        # Concatenate the subtask with the plan and convert the plan from a list to a string.
-        plan = list(response_dict.get("Plan"))
-        plan = [subtask] + plan
-        plan = "\n".join([f"({i+1}) " + str(item) for i, item in enumerate(plan)])
-
-        status = response_dict.get("Status")
-        comment = response_dict.get("Comment")
-
-        utils.print_with_color(
-            "Observations👀: {observation}".format(observation=observation), "cyan"
-        )
-        utils.print_with_color("Thoughts💡: {thought}".format(thought=thought), "green")
+        utils.print_with_color("=== HostAgent Response ===", "cyan")
+        
+        if observation:
+            utils.print_with_color("Observation:", "yellow")
+            utils.print_with_color(observation, "white")
+            print()
+        
+        if thought:
+            utils.print_with_color("Thought:", "green")
+            utils.print_with_color(thought, "white")
+            print()
+        
+        if response:
+            utils.print_with_color("Response:", "green")
+            utils.print_with_color(response, "white")
+            # utils.speak_text(response, lang="ko-KR")  # TTS 비활성화
+            print()
+        
         if bash_command:
             utils.print_with_color(
-                "Running Bash Command🔧: {bash}".format(bash=bash_command), "yellow"
+                "Running Bash Command:", "yellow"
             )
         utils.print_with_color(
             "Plans📚: {plan}".format(plan=plan),

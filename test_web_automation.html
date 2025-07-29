@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UFO 웹 자동화 테스트</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin: 15px 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"], input[type="email"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        .btn {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        .btn-primary {
+            background-color: #007bff;
+            color: white;
+        }
+        .btn-primary:hover {
+            background-color: #0056b3;
+        }
+        .btn-success {
+            background-color: #28a745;
+            color: white;
+        }
+        .btn-success:hover {
+            background-color: #1e7e34;
+        }
+        .result-area {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            min-height: 100px;
+        }
+        .link-group {
+            margin: 20px 0;
+        }
+        .link-group a {
+            display: inline-block;
+            margin: 5px;
+            padding: 8px 16px;
+            background-color: #17a2b8;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+        }
+        .link-group a:hover {
+            background-color: #138496;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 UFO 웹 자동화 테스트 페이지</h1>
+        <p>이 페이지는 UFO의 Selenium 웹 자동화 기능을 테스트하기 위한 페이지입니다.</p>
+        
+        <!-- 검색 폼 -->
+        <div class="form-group">
+            <h2>🔍 검색 기능</h2>
+            <label for="search">검색어:</label>
+            <input type="text" id="search" placeholder="검색어를 입력하세요">
+            <button class="btn btn-primary" onclick="performSearch()">검색</button>
+        </div>
+
+        <!-- 로그인 폼 -->
+        <div class="form-group">
+            <h2>🔐 로그인 폼</h2>
+            <label for="username">사용자명:</label>
+            <input type="text" id="username" placeholder="사용자명을 입력하세요">
+            <label for="email">이메일:</label>
+            <input type="email" id="email" placeholder="이메일을 입력하세요">
+            <button class="btn btn-success" onclick="submitForm()">제출</button>
+        </div>
+
+        <!-- 링크 그룹 -->
+        <div class="link-group">
+            <h2>🔗 링크들</h2>
+            <a href="#" onclick="showResult('홈 링크가 클릭되었습니다!')">홈</a>
+            <a href="#" onclick="showResult('정보 링크가 클릭되었습니다!')">정보</a>
+            <a href="#" onclick="showResult('연락처 링크가 클릭되었습니다!')">연락처</a>
+            <a href="#" onclick="showResult('도움말 링크가 클릭되었습니다!')">도움말</a>
+        </div>
+
+        <!-- 버튼들 -->
+        <div>
+            <h2>🔘 버튼들</h2>
+            <button class="btn btn-primary" onclick="showResult('저장 버튼이 클릭되었습니다!')">저장</button>
+            <button class="btn btn-success" onclick="showResult('확인 버튼이 클릭되었습니다!')">확인</button>
+            <button class="btn" onclick="showResult('취소 버튼이 클릭되었습니다!')">취소</button>
+        </div>
+
+        <!-- 결과 표시 영역 -->
+        <div class="result-area">
+            <h3>📊 결과</h3>
+            <div id="result">여기에 클릭 결과가 표시됩니다...</div>
+        </div>
+    </div>
+
+    <script>
+        function showResult(message) {
+            document.getElementById('result').innerHTML = '<p style="color: green;">✅ ' + message + '</p>';
+        }
+
+        function performSearch() {
+            const searchTerm = document.getElementById('search').value;
+            if (searchTerm) {
+                showResult('검색이 실행되었습니다: ' + searchTerm);
+            } else {
+                showResult('검색어를 입력해주세요!');
+            }
+        }
+
+        function submitForm() {
+            const username = document.getElementById('username').value;
+            const email = document.getElementById('email').value;
+            
+            if (username && email) {
+                showResult('폼이 성공적으로 제출되었습니다! 사용자명: ' + username + ', 이메일: ' + email);
+            } else {
+                showResult('모든 필드를 입력해주세요!');
+            }
+        }
+    </script>
+</body>
+</html> 
