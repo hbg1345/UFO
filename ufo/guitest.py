@@ -4,6 +4,7 @@ from PyQt5.QtCore import QProcess, QProcessEnvironment, Qt, QSize
 from PyQt5.QtGui import QIcon
 import sys
 import os
+from helper import Helper
 
 class MainWindow(QMainWindow):
 
@@ -23,14 +24,18 @@ class MainWindow(QMainWindow):
         self.resize(400, 300)  # 창 크기 설정
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
 
-        self.btn = QPushButton("요청하기")
-        self.btn.pressed.connect(self.start_process)
+        self.command_btn = QPushButton("요청하기")
+        self.command_btn.pressed.connect(self.start_process)
+
+        self.help_btn = QPushButton("도움받기")
+        self.help_btn.pressed.connect(self.start_agent)
         
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
 
         l = QVBoxLayout()
-        l.addWidget(self.btn)
+        l.addWidget(self.command_btn)
+        l.addWidget(self.help_btn)
         l.addWidget(self.text)
 
         w = QWidget()
@@ -111,6 +116,18 @@ class MainWindow(QMainWindow):
     def process_finished(self):
         self.message("Process finished")
         self.p = None
+
+    def start_agent(self):
+        self.message("Starting agent")
+        self.helper = Helper()
+        request = self.helper.get_request()
+        self.message(f"request: {request}")
+        response = self.helper.first_instruction(request)
+        self.message(f"response: {response}")
+
+        while not response.is_done:
+            response = self.helper.next_instruction()
+            self.message(f"response: {response}")
 
 
 if __name__ == "__main__":
