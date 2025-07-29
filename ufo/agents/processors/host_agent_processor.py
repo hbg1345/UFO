@@ -181,11 +181,13 @@ class HostAgentProcessor(BaseProcessor):
             # Add search input if search terms found
             if search_terms:
                 search_term = search_terms[0].strip()
-                plan.append({"function": "input_text", "args": {"text": search_term, "selector": "검색창"}})
+                plan.append({"function": "input_text", "args": {"text": search_term, "selector": "검색창", "press_enter": True}})
+                # Also try clicking search button as backup
                 plan.append({"function": "click_element", "args": {"text": "검색", "element_type": "button"}})
             else:
                 # Generic search plan
-                plan.append({"function": "input_text", "args": {"text": "검색어", "selector": "검색창"}})
+                plan.append({"function": "input_text", "args": {"text": "검색어", "selector": "검색창", "press_enter": True}})
+                # Also try clicking search button as backup
                 plan.append({"function": "click_element", "args": {"text": "검색", "element_type": "button"}})
                 
         elif "클릭" in user_request or "click" in user_request.lower():
@@ -413,10 +415,12 @@ class HostAgentProcessor(BaseProcessor):
             
             # Get HTML source if available
             html_source = ""
+            clickable_elements = []
             if self._selenium_receiver and self._selenium_receiver.driver:
                 try:
                     html_source = self._selenium_receiver.get_page_source()
-                    utils.print_with_color("HTML 소스를 성공적으로 가져왔습니다.", "green")
+                    clickable_elements = self._selenium_receiver.get_all_clickable_elements()
+                    utils.print_with_color("HTML 소스와 클릭 가능한 요소들을 성공적으로 가져왔습니다.", "green")
                 except Exception as e:
                     utils.print_with_color(f"HTML 소스 가져오기 실패: {e}", "yellow")
             
@@ -433,8 +437,9 @@ class HostAgentProcessor(BaseProcessor):
                 element_count = len(page_info["elements"])
                 self.response += f"\n발견된 클릭 가능한 요소: {element_count}개"
             
-            # Store HTML source and Selenium status for AppAgent
+            # Store HTML source, clickable elements and Selenium status for AppAgent
             self.html_source = html_source
+            self.clickable_elements = clickable_elements
             self.selenium_status = selenium_status
 
         # Print the response to user
@@ -605,8 +610,9 @@ class HostAgentProcessor(BaseProcessor):
                                 text = args.get("text", "")
                                 selector = args.get("selector", "")
                                 clear_first = args.get("clear_first", True)
-                                utils.print_with_color(f"텍스트 입력: {text} (selector: {selector})", "green")
-                                result = self._selenium_receiver.input_text(text, selector, clear_first)
+                                press_enter = args.get("press_enter", False)
+                                utils.print_with_color(f"텍스트 입력: {text} (selector: {selector}, press_enter: {press_enter})", "green")
+                                result = self._selenium_receiver.input_text(text, selector, clear_first, press_enter)
                                 utils.print_with_color(f"텍스트 입력 결과: {result}", "cyan")
                                 
                                 # Check if input was successful
@@ -1078,47 +1084,65 @@ class HostAgentProcessor(BaseProcessor):
                 html_source = self._selenium_receiver.get_page_source()
         except Exception as e:
             html_source = f"Failed to get HTML source: {e}"
+        
+        # Get clickable elements for better analysis
+        clickable_elements = []
+        try:
+            if self._selenium_receiver:
+                clickable_elements = self._selenium_receiver.get_all_clickable_elements()
+        except Exception as e:
+            clickable_elements = [{"error": f"Failed to get elements: {e}"}]
+        
         # Summarize execution results
         execution_summary = self._summarize_execution_results(execution_results)
+        
         system_message = """당신은 웹 자동화 전문가입니다. 
-실패한 웹 자동화 단계를 분석하고, 현재 페이지의 HTML 구조와 스크린샷을 바탕으로 새로운 계획을 수립해야 합니다.
+실패한 웹 자동화 단계를 분석하고, 현재 페이지의 HTML 구조와 클릭 가능한 요소들을 바탕으로 새로운 계획을 수립해야 합니다.
 
-- 새로운 WebPlan을 생성할 때, 이미 성공적으로 완료된 단계(예: 이미 이동한 페이지, 이미 입력한 텍스트, 이미 클릭한 버튼 등)는 다시 계획에 포함하지 마세요.
-- WebPlan에는 반드시 '아직 완료되지 않은 단계'만 포함해야 하며, 중복된 단계나 이미 완료된 작업은 생략해야 합니다.
+**중요한 원칙:**
+1. HTML을 자세히 분석하여 실제로 존재하는 요소의 정확한 속성을 찾으세요
+2. 가능하면 CSS 선택자나 XPath를 사용하여 정확한 요소를 지정하세요
+3. 텍스트 기반 검색보다는 id, class, name 등의 속성을 우선 사용하세요
+4. 검색의 경우 Enter 키 사용을 우선 고려하세요
 
-이전 단계 실행 요약:
-{execution_summary}
-
-실패한 단계 정보:
+**실패한 단계 분석:**
 - 함수: {function}
 - 인수: {args}
 - 오류: {error}
 
-현재 페이지 정보:
+**현재 페이지 정보:**
 - 제목: {title}
 - URL: {url}
-- 스크린샷 정보: {screenshot_info}
 
-현재 페이지의 HTML 소스:
+**현재 페이지의 클릭 가능한 요소들:**
+{clickable_elements}
+
+**현재 페이지의 HTML 소스:**
 ```html
 {html_source}
 ```
 
-원래 요청: {request}
+**원래 요청:** {request}
 
-위 HTML 소스와 스크린샷 정보를 분석하여 실패한 단계를 대체할 수 있는 새로운 WebPlan을 생성하세요.
-HTML에서 실제로 존재하는 요소들의 id, class, name, placeholder, type 등의 속성을 확인하여 정확한 selector를 사용하세요.
+**이전 단계 실행 요약:**
+{execution_summary}
 
-**중요한 가이드라인:**
-1. HTML을 자세히 분석하여 실제로 존재하는 요소의 속성을 찾으세요
-2. 검색창의 경우: input 태그의 name, id, class, placeholder 속성을 확인하세요
-3. 버튼의 경우: button, input[type='submit'], a 태그의 text, id, class 속성을 확인하세요
-4. selector는 CSS 선택자 또는 XPath를 사용할 수 있습니다
+위 정보를 바탕으로 실패한 단계를 대체할 수 있는 새로운 WebPlan을 생성하세요.
 
-WebPlan은 함수 호출 형식(리스트의 딕셔너리)으로 작성해야 합니다.
-지원하는 함수: navigate_to_url, click_element, input_text, get_page_source
+**WebPlan 작성 가이드라인:**
+1. **검색창 입력**: `input_text` 함수에서 `press_enter: true` 사용을 우선 고려
+2. **정확한 선택자**: 가능하면 CSS 선택자(`#id`, `.class`) 또는 XPath 사용
+3. **요소 타입**: 실제 HTML 태그에 맞는 element_type 지정
+4. **중복 제거**: 이미 완료된 단계는 포함하지 않음
 
-응답은 다음 JSON 형식으로 작성하세요:
+**지원하는 함수들:**
+- `navigate_to_url`: URL로 이동
+- `input_text`: 텍스트 입력 (press_enter 옵션 포함)
+- `click_element`: 요소 클릭 (정확한 selector 사용 권장)
+- `get_page_source`: 페이지 소스 가져오기
+
+**응답 형식:**
+```json
 {{
     "Observation": "현재 상황 분석 (HTML 구조 기반)",
     "Thought": "새로운 계획 수립 과정",
@@ -1127,18 +1151,20 @@ WebPlan은 함수 호출 형식(리스트의 딕셔너리)으로 작성해야 �
         ...
     ],
     "Comment": "계획 수정 이유"
-}}""".format(
+}}
+```""".format(
             function=failed_step.get('function', ''),
             args=failed_step.get('args', {}),
             error=failed_step.get('error', ''),
             title=page_info.get('title', ''),
             url=page_info.get('url', ''),
-            screenshot_info=page_info.get('screenshot_info', ''),
+            clickable_elements=json.dumps(clickable_elements, indent=2, ensure_ascii=False),
             html_source=html_source,
             request=original_request,
             execution_summary=execution_summary
         )
+        
         return [
             {"role": "system", "content": system_message},
-            {"role": "user", "content": f"실패한 단계를 수정해서 원래 요청 '{original_request}'을 완료할 수 있는 새로운 계획을 만들어주세요. HTML 구조와 스크린샷을 참고하여 정확한 selector를 사용하세요."}
+            {"role": "user", "content": f"실패한 단계를 수정해서 원래 요청 '{original_request}'을 완료할 수 있는 새로운 계획을 만들어주세요. HTML 구조와 클릭 가능한 요소들을 참고하여 정확한 selector를 사용하세요."}
         ]

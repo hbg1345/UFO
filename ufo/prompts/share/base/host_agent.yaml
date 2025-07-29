@@ -43,11 +43,11 @@ system: |-
   - **지원하는 함수들**:
     * `navigate_to_url`: 웹사이트로 이동 (args: {{"url": "https://example.com"}})
     * `click_element`: 요소 클릭 (args: {{"text": "버튼텍스트", "element_type": "button"}})
-    * `input_text`: 텍스트 입력 (args: {{"text": "입력할텍스트", "selector": "입력필드선택자"}})
+    * `input_text`: 텍스트 입력 (args: {{"text": "입력할텍스트", "selector": "입력필드선택자", "press_enter": false}})
     * `submit_form`: 폼 제출 (args: {{}})
   - **예시**:
-    * 네이버에서 "석인호" 검색: [{{"function": "navigate_to_url", "args": {{"url": "https://www.naver.com"}}}}, {{"function": "input_text", "args": {{"text": "석인호", "selector": "검색창"}}}}, {{"function": "click_element", "args": {{"text": "검색", "element_type": "button"}}}}]
-    * 구글에서 검색: [{{"function": "navigate_to_url", "args": {{"url": "https://www.google.com"}}}}, {{"function": "input_text", "args": {{"text": "검색어", "selector": "selector"}}}}]
+    * 네이버에서 "석인호" 검색: [{{"function": "navigate_to_url", "args": {{"url": "https://www.naver.com"}}}}, {{"function": "input_text", "args": {{"text": "석인호", "selector": "검색창", "press_enter": true}}}}, {{"function": "click_element", "args": {{"text": "검색", "element_type": "button"}}}}]
+    * 구글에서 검색: [{{"function": "navigate_to_url", "args": {{"url": "https://www.google.com"}}}}, {{"function": "input_text", "args": {{"text": "검색어", "selector": "selector", "press_enter": true}}}}]
 
   - **당신의 응답은 반드시 다음 JSON 형식을 정확히 따라야 합니다:**
     {{
@@ -116,11 +116,11 @@ system_nonvisual: |-
   - **지원하는 함수들**:
     * `navigate_to_url`: 웹사이트로 이동 (args: {{"url": "https://example.com"}})
     * `click_element`: 요소 클릭 (args: {{"text": "버튼텍스트", "element_type": "button"}})
-    * `input_text`: 텍스트 입력 (args: {{"text": "입력할텍스트", "selector": "입력필드선택자"}})
+    * `input_text`: 텍스트 입력 (args: {{"text": "입력할텍스트", "selector": "입력필드선택자", "press_enter": false}})
     * `submit_form`: 폼 제출 (args: {{}})
   - **예시**:
-    * 네이버에서 "석인호" 검색: [{{"function": "navigate_to_url", "args": {{"url": "https://www.naver.com"}}}}, {{"function": "input_text", "args": {{"text": "석인호", "selector": "검색창"}}}}, {{"function": "click_element", "args": {{"text": "검색", "element_type": "button"}}}}]
-    * 구글에서 검색: [{{"function": "navigate_to_url", "args": {{"url": "https://www.google.com"}}}}, {{"function": "input_text", "args": {{"text": "검색어", "selector": "selector"}}}}]
+    * 네이버에서 "석인호" 검색: [{{"function": "navigate_to_url", "args": {{"url": "https://www.naver.com"}}}}, {{"function": "input_text", "args": {{"text": "석인호", "selector": "검색창", "press_enter": true}}}}, {{"function": "click_element", "args": {{"text": "검색", "element_type": "button"}}}}]
+    * 구글에서 검색: [{{"function": "navigate_to_url", "args": {{"url": "https://www.google.com"}}}}, {{"function": "input_text", "args": {{"text": "검색어", "selector": "selector", "press_enter": true}}}}]
 
   - **당신의 응답은 반드시 다음 JSON 형식을 정확히 따라야 합니다:**
     {{

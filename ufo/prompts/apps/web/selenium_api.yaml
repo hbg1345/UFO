@@ -33,14 +33,16 @@ input_text:
   class_name: |-
     InputTextCommand
   usage: |-
-    [1] API 호출: input_text(text: str, selector: str, clear_first: bool = True)
+    [1] API 호출: input_text(text: str, selector: str, clear_first: bool = True, press_enter: bool = False)
     [2] 인수:
       - text: 입력할 텍스트
       - selector: 입력 필드의 CSS 선택자 또는 XPath (예: "#search", "//input[@name='q']")
       - clear_first: 기존 텍스트를 먼저 지울지 여부 (기본값: True)
+      - press_enter: 입력 후 Enter 키를 누를지 여부 (기본값: False, 검색 폼에서 유용)
     [3] 예시: 
       - input_text(text="검색어", selector="#search")
       - input_text(text="사용자명", selector="//input[@name='username']")
+      - input_text(text="검색어", selector="#search", press_enter=True)
     [4] 사용 가능한 컨트롤: 모든 입력 필드
     [5] 반환값: 성공/실패 메시지
 

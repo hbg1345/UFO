@@ -652,7 +652,8 @@ class AppAgentProcessor(BaseProcessor):
                 text = self._args.get("text", "")
                 selector = self._args.get("selector", "")
                 clear_first = self._args.get("clear_first", True)
-                result = self._selenium_receiver.input_text(text, selector, clear_first)
+                press_enter = self._args.get("press_enter", False)
+                result = self._selenium_receiver.input_text(text, selector, clear_first, press_enter)
                 utils.print_with_color(f"텍스트 입력 결과: {result}", "cyan")
                 
             elif self._operation == "get_page_source":
@@ -729,8 +730,9 @@ class AppAgentProcessor(BaseProcessor):
                         text = args.get("text", "")
                         selector = args.get("selector", "")
                         clear_first = args.get("clear_first", True)
-                        utils.print_with_color(f"텍스트 입력: {text} (selector: {selector})", "green")
-                        result = self._selenium_receiver.input_text(text, selector, clear_first)
+                        press_enter = args.get("press_enter", False)
+                        utils.print_with_color(f"텍스트 입력: {text} (selector: {selector}, press_enter: {press_enter})", "green")
+                        result = self._selenium_receiver.input_text(text, selector, clear_first, press_enter)
                         utils.print_with_color(f"텍스트 입력 결과: {result}", "cyan")
                         
                     elif function == "get_page_source":
