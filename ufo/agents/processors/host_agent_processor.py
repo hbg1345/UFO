@@ -677,7 +677,33 @@ class HostAgentProcessor(BaseProcessor):
         # 2. Ask LLM to judge if the user's request is truly complete
         original_request = self.context.get(ContextNames.REQUEST)
         post_action_prompt = [
-            {"role": "system", "content": f"아래는 사용자의 요청 '{original_request}'을(를) 수행한 후의 스크린샷과 HTML입니다. 실제로 요청이 완료되었는지(예: 검색 결과가 화면에 나타났는지) 반드시 판단하세요. 요청이 완료되었다면 Status: FINISH, WebPlan: []로 응답하세요. 아직 미완료라면 Status: CONTINUE, WebPlan에 남은 단계만 포함하세요.\n\n작업 후 스크린샷: {latest_screenshot_url}\n작업 후 HTML:\n```html\n{latest_html}\n```"},
+            {"role": "system", "content": f"""당신은 사용자의 요청이 실제로 완료되었는지 판단하는 전문가입니다.
+
+사용자의 원래 요청: '{original_request}'
+
+**중요한 판단 기준:**
+1. **음악/영상 관련 요청**: 실제로 음악이 재생되거나 영상이 재생되어야 완료
+2. **검색 관련 요청**: 검색 결과만으로는 불완전, 실제로 원하는 정보를 얻거나 액션을 수행해야 완료
+3. **로그인/회원가입**: 실제로 로그인/가입이 완료되어야 완료
+4. **구매/주문**: 실제로 구매/주문이 완료되어야 완료
+5. **단순 정보 확인**: 해당 정보가 화면에 표시되면 완료
+
+**현재 상황:**
+작업 후 스크린샷: {latest_screenshot_url}
+작업 후 HTML:
+```html
+{latest_html}
+```
+
+위 정보를 바탕으로 사용자의 요청이 **실제로 완료되었는지** 판단하세요.
+
+- **완료되었다면**: Status: FINISH, WebPlan: []
+- **아직 미완료라면**: Status: CONTINUE, WebPlan에 남은 단계만 포함
+
+**예시:**
+- "유튜브에서 조재민 피아노 듣고 싶다" → 검색 결과만으로는 불완전, 실제로 영상이 재생되어야 완료
+- "구글에서 날씨 검색" → 날씨 정보가 화면에 표시되면 완료
+- "네이버 로그인" → 실제로 로그인되어야 완료"""},
             {"role": "user", "content": f"위 작업 결과를 바탕으로, 사용자의 요청 '{original_request}'이(가) 실제로 완료되었는지 판단하고, Status와 WebPlan을 올바르게 응답하세요."}
         ]
         # 3. Get LLM's answer and update status/plan accordingly
