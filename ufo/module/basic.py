@@ -102,12 +102,9 @@ class BaseRound(ABC):
         """
 
         while not self.is_finished():
-
             self.agent.handle(self.context)
-
             self.state = self.agent.state.next_state(self.agent)
             self.agent = self.agent.state.next_agent(self.agent)
-
             self.agent.set_state(self.state)
 
             # If the subtask ends, capture the last snapshot of the application.

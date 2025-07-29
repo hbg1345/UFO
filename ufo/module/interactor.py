@@ -135,7 +135,7 @@ def new_request() -> Tuple[str, bool]:
     utils.print_with_color(
         guide, "cyan"
     )
-    utils.speak_text(guide, lang="ko-KR")
+    # utils.speak_text(guide, lang="ko-KR")
     request = recognize_speech_assemblyai_streaming()
     if request.upper() == "N" or request.strip() == "종료":
         complete = True

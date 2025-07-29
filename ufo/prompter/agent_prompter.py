@@ -79,6 +79,8 @@ class HostAgentPrompter(BasicPrompter):
         prev_plan: str,
         user_request: str,
         retrieved_docs: str = "",
+        html_source: str = "",
+        selenium_status: str = "",
     ) -> List[Dict[str, str]]:
         """
         Construct the prompt for LLMs.
@@ -88,6 +90,8 @@ class HostAgentPrompter(BasicPrompter):
         :param prev_plan: The previous plan.
         :param user_request: The user request.
         :param retrieved_docs: The retrieved documents.
+        :param html_source: The HTML source code for web automation.
+        :param selenium_status: The status of Selenium WebDriver.
         return: The prompt for LLMs.
         """
 
@@ -103,12 +107,13 @@ class HostAgentPrompter(BasicPrompter):
         user_content.append(
             {
                 "type": "text",
-                "text": self.user_prompt_construction(
-                    control_item=control_item,
-                    prev_subtask=prev_subtask,
-                    prev_plan=prev_plan,
+                "text": self.prompt_template["user"].format(
+                    control_item=json.dumps(control_item),
+                    prev_subtask=json.dumps(prev_subtask),
+                    prev_plan=json.dumps(prev_plan),
                     user_request=user_request,
-                    retrieved_docs=retrieved_docs,
+                    html_source=html_source,
+                    selenium_status=selenium_status,
                 ),
             }
         )
