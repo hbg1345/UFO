@@ -551,43 +551,13 @@ class HostAgentProcessor(BaseProcessor):
                             elif function == "click_element":
                                 text = args.get("text", "")
                                 element_type = args.get("element_type", "any")
-                                selector = args.get("selector", "")
-                                
-                                if selector:
-                                    utils.print_with_color(f"요소 클릭 (selector): {selector}", "green")
-                                    selectors = [s.strip() for s in selector.split(',')]
-                                    clicked = False
-                                    last_error = ''
-                                    for sel in selectors:
-                                        if ':contains' in sel:
-                                            continue  # Selenium 미지원, 건너뜀
-                                        try:
-                                            if sel.startswith("//"):
-                                                element = self._selenium_receiver.wait.until(
-                                                    EC.element_to_be_clickable((By.XPATH, sel))
-                                                )
-                                            else:
-                                                element = self._selenium_receiver.wait.until(
-                                                    EC.element_to_be_clickable((By.CSS_SELECTOR, sel))
-                                                )
-                                            element.click()
-                                            result = f"Successfully clicked element with selector '{sel}'"
-                                            utils.print_with_color(f"클릭 결과: {result}", "cyan")
-                                            clicked = True
-                                            break
-                                        except Exception as e:
-                                            last_error = str(e)
-                                    if not clicked:
-                                        result = f"Failed to click any selector. Last error: {last_error}"
-                                        utils.print_with_color(f"클릭 실패: {result}", "red")
-                                else:
-                                    utils.print_with_color(f"요소 클릭: {text} ({element_type})", "green")
-                                    result = self._selenium_receiver.click_element(text, element_type)
-                                    utils.print_with_color(f"클릭 결과: {result}", "cyan")
+                                utils.print_with_color(f"요소 클릭: {text} ({element_type})", "green")
+                                result = self._selenium_receiver.click_element(text, element_type)
+                                utils.print_with_color(f"클릭 결과: {result}", "cyan")
                                 
                                 # Check if click was successful
                                 if "not found" in result or "not clickable" in result or "Failed" in result:
-                                    utils.print_with_color(f"수정된 계획의 클릭 실패: {result}", "red")
+                                    utils.print_with_color(f"클릭 실패: {result}", "red")
                                     
                                     # Get current page information for plan modification
                                     current_page_info = self._get_current_page_info()
@@ -1029,23 +999,28 @@ class HostAgentProcessor(BaseProcessor):
                 modification_prompt, "HOSTAGENT", use_backup_engine=True
             )
             
-            # Parse the new response
-            new_response_json = self.host_agent.response_to_dict(new_response)
-            new_web_plan = new_response_json.get("WebPlan", [])
-            
-            if new_web_plan and isinstance(new_web_plan, list) and len(new_web_plan) > 0:
-                utils.print_with_color("새로운 웹 자동화 계획이 생성되었습니다:", "green")
-                utils.print_with_color(f"새 계획: {new_web_plan}", "cyan")
+            # Parse the new response with error handling
+            try:
+                new_response_json = self.host_agent.response_to_dict(new_response)
+                new_web_plan = new_response_json.get("WebPlan", [])
                 
-                # Store the modified plan
-                self._modified_plan = new_web_plan
-                
-                # Continue with the new plan
-                utils.print_with_color("새로운 계획으로 계속 실행합니다...", "green")
-                self._web_plan = new_web_plan
-                
-            else:
-                utils.print_with_color("새로운 계획을 생성할 수 없습니다.", "red")
+                if new_web_plan and isinstance(new_web_plan, list) and len(new_web_plan) > 0:
+                    utils.print_with_color("새로운 웹 자동화 계획이 생성되었습니다:", "green")
+                    utils.print_with_color(f"새 계획: {new_web_plan}", "cyan")
+                    
+                    # Store the modified plan
+                    self._modified_plan = new_web_plan
+                    
+                    # Continue with the new plan
+                    utils.print_with_color("새로운 계획으로 계속 실행합니다...", "green")
+                    self._web_plan = new_web_plan
+                    
+                else:
+                    utils.print_with_color("새로운 계획을 생성할 수 없습니다.", "red")
+                    
+            except Exception as parse_error:
+                utils.print_with_color(f"LLM 응답 파싱 실패: {parse_error}", "red")
+                utils.print_with_color(f"원본 응답: {new_response[:500]}...", "yellow")
                 
         except Exception as e:
             utils.print_with_color(f"계획 수정 요청 중 오류: {e}", "red")
@@ -1090,11 +1065,21 @@ class HostAgentProcessor(BaseProcessor):
         try:
             if self._selenium_receiver:
                 clickable_elements = self._selenium_receiver.get_all_clickable_elements()
+                # Limit the size to prevent JSON parsing issues
+                if len(clickable_elements) > 50:
+                    clickable_elements = clickable_elements[:50]
         except Exception as e:
             clickable_elements = [{"error": f"Failed to get elements: {e}"}]
         
         # Summarize execution results
         execution_summary = self._summarize_execution_results(execution_results)
+        
+        # Safely format clickable elements as string
+        try:
+            clickable_elements_str = json.dumps(clickable_elements, indent=2, ensure_ascii=False)
+        except Exception as e:
+            clickable_elements_str = f"Error formatting elements: {e}"
+        
         
         system_message = """당신은 웹 자동화 전문가입니다. 
 실패한 웹 자동화 단계를 분석하고, 현재 페이지의 HTML 구조와 클릭 가능한 요소들을 바탕으로 새로운 계획을 수립해야 합니다.
@@ -1158,7 +1143,7 @@ class HostAgentProcessor(BaseProcessor):
             error=failed_step.get('error', ''),
             title=page_info.get('title', ''),
             url=page_info.get('url', ''),
-            clickable_elements=json.dumps(clickable_elements, indent=2, ensure_ascii=False),
+            clickable_elements=clickable_elements_str,
             html_source=html_source,
             request=original_request,
             execution_summary=execution_summary

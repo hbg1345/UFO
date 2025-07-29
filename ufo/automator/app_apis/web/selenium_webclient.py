@@ -125,78 +125,20 @@ class SeleniumWebReceiver(ReceiverBasic):
         :return: Success message or error.
         """
         try:
-            # Enhanced selectors for better element finding
-            selectors = []
+            # Simple approach: use the arguments as provided by LLM
+            selectors = {
+                "button": "//button[contains(text(), '{}')]",
+                "link": "//a[contains(text(), '{}')]",
+                "any": "//*[contains(text(), '{}')]"
+            }
             
-            if element_type == "button":
-                # For buttons, try multiple approaches
-                selectors.extend([
-                    f"//button[contains(text(), '{text}')]",
-                    f"//button[@value='{text}']",
-                    f"//button[@aria-label='{text}']",
-                    f"//button[@title='{text}']",
-                    f"//input[@type='submit' and @value='{text}']",
-                    f"//input[@type='button' and @value='{text}']",
-                    f"//button[contains(@class, '{text.lower()}')]",
-                    f"//button[contains(@id, '{text.lower()}')]"
-                ])
-            elif element_type == "link":
-                selectors.extend([
-                    f"//a[contains(text(), '{text}')]",
-                    f"//a[@aria-label='{text}']",
-                    f"//a[@title='{text}']"
-                ])
-            else:  # any type
-                selectors.extend([
-                    f"//*[contains(text(), '{text}')]",
-                    f"//*[@value='{text}']",
-                    f"//*[@aria-label='{text}']",
-                    f"//*[@title='{text}']",
-                    f"//button[contains(text(), '{text}')]",
-                    f"//a[contains(text(), '{text}')]",
-                    f"//input[@value='{text}']"
-                ])
-            
-            # Try each selector until one works
-            last_error = ""
-            for xpath in selectors:
-                try:
-                    element = self.wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
-                    element.click()
-                    time.sleep(1)
-                    return f"Successfully clicked element with text '{text}' using selector: {xpath}"
-                except TimeoutException:
-                    last_error = f"Element with text '{text}' not found with selector: {xpath}"
-                    continue
-                except Exception as e:
-                    last_error = f"Failed to click element with selector {xpath}: {e}"
-                    continue
-            
-            # If all selectors failed, try a more generic approach for search buttons
-            if "검색" in text or "search" in text.lower():
-                search_selectors = [
-                    "//button[@type='submit']",
-                    "//input[@type='submit']",
-                    "//button[contains(@class, 'search')]",
-                    "//button[contains(@class, 'btn-search')]",
-                    "//input[@type='submit' and contains(@class, 'search')]",
-                    "//button[contains(@aria-label, '검색')]",
-                    "//button[contains(@aria-label, 'search')]",
-                    "//button[contains(@title, '검색')]",
-                    "//button[contains(@title, 'search')]"
-                ]
-                
-                for xpath in search_selectors:
-                    try:
-                        element = self.wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
-                        element.click()
-                        time.sleep(1)
-                        return f"Successfully clicked search element using selector: {xpath}"
-                    except (TimeoutException, Exception):
-                        continue
-            
-            return f"Element with text '{text}' not found or not clickable. Last error: {last_error}"
-            
+            xpath = selectors.get(element_type, selectors["any"]).format(text)
+            element = self.wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
+            element.click()
+            time.sleep(1)
+            return f"Successfully clicked element with text '{text}'"
+        except TimeoutException:
+            return f"Element with text '{text}' not found or not clickable"
         except Exception as e:
             return f"Failed to click element: {e}"
 
