@@ -4,11 +4,11 @@ from pydantic import BaseModel
 from io import BytesIO
 from PIL import ImageGrab
 import base64
+from dotenv import load_dotenv
 import queue
 import pyaudio
 from google.cloud import speech
 from google.api_core import exceptions
-from dotenv import load_dotenv
 load_dotenv()
 
 RATE = 16000
@@ -77,7 +77,6 @@ def listen_print_loop(responses):
 def recognize_speech_streaming():
     """
     Recognize speech from the microphone using Google Cloud Speech-to-Text.
-    :param timeout: Not used (kept for compatibility)
     :return: The recognized transcript.
     """
     language_code = "ko-KR"  # or "en-US" for English
@@ -107,7 +106,7 @@ def recognize_speech_streaming():
         return result
 
 system_prompt = """
-You are a kind and patient digital assistant 'INO' that helps elderly users who are not familiar with computers. 
+You are a kind and patient digital assistant 'INO(이노)' that helps elderly users who are not familiar with computers. 
 When a user tells you what they want to do (e.g., check the weather, write a document), guide them step-by-step on how to perform the task.
 Each time you will be given a screenshot. Use it to determine the next action they need to take.
 Each response consists of a step(int), an instruction(string), and is_done(boolean).
@@ -147,7 +146,7 @@ class Helper():
         encoded_screenshot = self.take_screenshot()
 
         response = self.client.responses.parse(
-            model = "gpt-4o-mini",
+            model = "gpt-4.1-nano",
             input = [
                 {
                     "role": "system",
@@ -174,7 +173,7 @@ class Helper():
         encoded_screenshot = self.take_screenshot()
 
         response = self.client.responses.parse(
-            model = "gpt-4o-mini",
+            model = "gpt-4.1-nano",
             input = [
                 {
                     "role": "user",
