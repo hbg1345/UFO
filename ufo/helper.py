@@ -9,101 +9,9 @@ import queue
 import pyaudio
 from google.cloud import speech
 from google.api_core import exceptions
+from utils import speak_text, recognize_speech_streaming
 load_dotenv()
 
-RATE = 16000
-CHUNK = int(RATE / 10)  # 100ms
-TIMEOUT_FROM_RESPONSE = 6
-
-class MicrophoneStream:
-    """Opens a recording stream as a generator yielding the audio chunks."""
-    def __init__(self, rate: int = RATE, chunk: int = CHUNK) -> None:
-        self._rate = rate
-        self._chunk = chunk
-        self._buff = queue.Queue()
-        self.closed = True
-    def __enter__(self):
-        self._audio_interface = pyaudio.PyAudio()
-        self._audio_stream = self._audio_interface.open(
-            format=pyaudio.paInt16,
-            channels=1,
-            rate=self._rate,
-            input=True,
-            frames_per_buffer=self._chunk,
-            stream_callback=self._fill_buffer,
-        )
-        self.closed = False
-        return self
-    def __exit__(self, type, value, traceback):
-        self._audio_stream.stop_stream()
-        self._audio_stream.close()
-        self.closed = True
-        self._buff.put(None)
-        self._audio_interface.terminate()
-    def _fill_buffer(self, in_data, frame_count, time_info, status_flags):
-        self._buff.put(in_data)
-        return None, pyaudio.paContinue
-    def generator(self):
-        while not self.closed:
-            chunk = self._buff.get()
-            if chunk is None:
-                return
-            data = [chunk]
-            while True:
-                try:
-                    chunk = self._buff.get(block=False)
-                    if chunk is None:
-                        return
-                    data.append(chunk)
-                except queue.Empty:
-                    break
-            yield b"".join(data)
-
-def listen_print_loop(responses):
-    transcript = ""
-    try: 
-        for response in responses:
-            if not response.results:
-                continue
-            result = response.results[0]
-            if not result.alternatives:
-                continue
-            transcript = result.alternatives[0].transcript
-            if result.is_final:
-                break
-    except exceptions.DeadlineExceeded:
-        return transcript
-    
-def recognize_speech_streaming():
-    """
-    Recognize speech from the microphone using Google Cloud Speech-to-Text.
-    :return: The recognized transcript.
-    """
-    language_code = "ko-KR"  # or "en-US" for English
-    client = speech.SpeechClient()
-    config = speech.RecognitionConfig(
-        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-        sample_rate_hertz=RATE,
-        language_code=language_code,
-    )
-    streaming_config = speech.StreamingRecognitionConfig(
-        config=config, interim_results=True
-    )
-    with MicrophoneStream(RATE, CHUNK) as stream:
-        audio_generator = stream.generator()
-        
-        def request_generator():
-            # 첫 번째 요청: streaming_config만 포함
-            yield speech.StreamingRecognizeRequest(streaming_config=streaming_config)
-            
-            # 이후 요청들: audio_content만 포함
-            for content in audio_generator:
-                yield speech.StreamingRecognizeRequest(audio_content=content)
-        
-        responses = client.streaming_recognize(request_generator(), timeout=TIMEOUT_FROM_RESPONSE)
-        result = listen_print_loop(responses)
-        print(result)
-        return result
 
 system_prompt = """
 You are a kind and patient digital assistant 'INO(이노)' that helps elderly users who are not familiar with computers. 
@@ -115,9 +23,11 @@ instruction is the next action they need to take. It must be written in Korean.
 Each instruction should be composed of 1 to 3 sentences.
 Avoid technical jargon; use simple expressions elderly people can understand.
 If the user did not complete the previous step correctly, guide them through it again in a more detailed and easy-to-understand manner.
+You must check the given screenshot to determine the next action they need to take.
+Assume the user does not know basic computer skills, and explain each step in a detailed and friendly manner.
 When referring to icons or buttons that need to be clicked, include information such as their location color, and shape.
 When the task is complete, set is_done to True.
-If the user asks a question that is not related to the task, set is_done to True.
+If the user asks a question that is not related to using the computer, set is_done to True.
 """
 
 class ResponseFormat(BaseModel):
@@ -146,7 +56,7 @@ class Helper():
         encoded_screenshot = self.take_screenshot()
 
         response = self.client.responses.parse(
-            model = "gpt-4.1-nano",
+            model = "gpt-4o-mini",
             input = [
                 {
                     "role": "system",
@@ -168,17 +78,17 @@ class Helper():
         print(parsed_response)
         return parsed_response
 
-    def next_instruction(self):
+    def next_instruction(self, query="이 화면에서 뭘 해야해?"):
 
         encoded_screenshot = self.take_screenshot()
 
         response = self.client.responses.parse(
-            model = "gpt-4.1-nano",
+            model = "gpt-4o-mini",
             input = [
                 {
                     "role": "user",
                     "content": [
-                        {"type": "input_text", "text": "다음으로 뭘 해야해?"},
+                        {"type": "input_text", "text": query},
                         {"type": "input_image", "image_url": f"data:image/png;base64,{encoded_screenshot}"}
                     ]
                 }

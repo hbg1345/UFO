@@ -38,6 +38,18 @@ class MainWindow(QMainWindow):
         self.command_text_btn.pressed.connect(self.start_process_text)
         self.command_text_btn.hide()
 
+        self.end_agent_btn = QPushButton("종료하기")
+        self.end_agent_btn.pressed.connect(self.end_agent)
+        self.end_agent_btn.hide()
+
+        """self.question_voice_btn = QPushButton("말로 질문하기")
+        self.question_voice_btn.pressed.connect(self.ask_question_voice)
+        self.question_voice_btn.hide()
+
+        self.question_text_btn = QPushButton("글로 질문하기")
+        self.question_text_btn.pressed.connect(self.ask_question_text)
+        self.question_text_btn.hide()"""
+
         self.command_text_input = QLineEdit()
         self.command_text_input.returnPressed.connect(self.submit_text)
         self.command_text_input.hide()
@@ -56,8 +68,9 @@ class MainWindow(QMainWindow):
         l.addWidget(self.next_btn)
         l.addWidget(self.command_voice_btn)
         l.addWidget(self.command_text_btn)
-        l.addWidget(self.command_text_input)  # 텍스트 입력창 추가
+        l.addWidget(self.command_text_input)
         l.addWidget(self.text)
+        l.addWidget(self.end_agent_btn)
 
         w = QWidget()
         w.setLayout(l)
@@ -187,10 +200,13 @@ class MainWindow(QMainWindow):
         self.command_text_btn.hide()
         self.command_text_input.hide()
         self.command_text_input.clear()
+        self.text.clear()
+        self.end_agent_btn.hide()
 
     def start_agent(self):
         self.help_btn.hide()  # 도움받기 버튼 숨기기
         self.command_btn.hide()  # 요청하기 버튼 숨기기
+        self.end_agent_btn.show()
 
         self.message("Starting agent")
         self.helper = Helper()
@@ -202,15 +218,18 @@ class MainWindow(QMainWindow):
         # 첫 번째 응답 후 다음 단계 버튼 표시
         self.next_btn.show()
     
-    def next_instruction(self):
+    def next_instruction(self, query="이 화면에서 뭘 해야해?"):
         self.message("Getting next instruction...")
-        response = self.helper.next_instruction()
+        response = self.helper.next_instruction(query)
         self.message(f"response: {response}")
         
         # 응답이 완료되었는지 확인하여 버튼 상태 변경
         if hasattr(response, 'is_done') and response.is_done:
-            self.reset_to_initial_state()
-            self.message("Task completed!")
+            self.end_agent()
+
+    def end_agent(self):
+        self.reset_to_initial_state()
+        self.helper = None
 
 
 
