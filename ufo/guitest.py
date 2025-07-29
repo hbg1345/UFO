@@ -69,12 +69,13 @@ class MainWindow(QMainWindow):
 
     def start_process(self):
         if self.p is None:
-            self.message("Excecuting process")
+            self.message("Executing process")
 
-            # 가상환경 경로 설정
-            venv_path = r"C:\Users\serin\workspace\madcamp\UFO\ufo_env"
-            python_exe = os.path.join(venv_path, "Scripts", "python.exe")  # Windows
-            # python_exe = os.path.join(venv_path, "bin", "python")  # Linux/Mac
+            # 현재 Python 실행 파일 경로 사용 (가상환경이 활성화되어 있다면 자동으로 사용됨)
+            python_exe = sys.executable
+            
+            # 또는 시스템 Python 사용
+            # python_exe = "python"
 
             self.p = QProcess()
 
@@ -88,7 +89,9 @@ class MainWindow(QMainWindow):
             self.p.readyReadStandardError.connect(self.handle_stderr)
             self.p.stateChanged.connect(self.handle_state)
             self.p.finished.connect(self.process_finished)
-            self.p.start(python_exe, ["-m", "ufo", "-t", "task_name"])
+            
+            # UFO 모듈 실행 (task_name 대신 실제 사용자 입력을 받거나 기본값 사용)
+            self.p.start(python_exe, ["-m", "ufo"])
 
     def handle_stdout(self):
         data = self.p.readAllStandardOutput()
