@@ -1056,19 +1056,20 @@ class HostAgentProcessor(BaseProcessor):
         """
         Summarize execution results for prompt brevity.
         :param execution_results: List of execution result dicts.
-        :return: Summary string (max 10 lines).
+        :return: Summary string (immediate previous step only).
         """
         if not execution_results:
             return "(이전 실행 결과 없음)"
-        summary = []
-        for step in execution_results[-10:]:  # 최근 10개만
-            func = step.get('function', '')
-            args = step.get('args', {})
-            if step.get('success'):
-                summary.append(f"성공: {func}({args})")
-            else:
-                summary.append(f"실패: {func}({args}) - {step.get('error', '')}")
-        return '\n'.join(summary)
+        
+        # 바로 이전 단계만 가져오기
+        last_step = execution_results[-1]
+        func = last_step.get('function', '')
+        args = last_step.get('args', {})
+        
+        if last_step.get('success'):
+            return f"이전 단계 성공: {func}({args})"
+        else:
+            return f"이전 단계 실패: {func}({args}) - {last_step.get('error', '')}"
 
     def _create_modification_prompt(self, failed_step: Dict, page_info: Dict[str, Any], execution_results: list = None) -> List[Dict[str, Any]]:
         """
@@ -1092,16 +1093,14 @@ class HostAgentProcessor(BaseProcessor):
         try:
             if self._selenium_receiver:
                 clickable_elements = self._selenium_receiver.get_all_clickable_elements()
-                # Limit the size to prevent JSON parsing issues
-                if len(clickable_elements) > 50:
-                    clickable_elements = clickable_elements[:50]
+                # 제한 제거: 전체 클릭 가능한 요소들을 전송
         except Exception as e:
             clickable_elements = [{"error": f"Failed to get elements: {e}"}]
         
         # Summarize execution results
         execution_summary = self._summarize_execution_results(execution_results)
         
-        # Safely format clickable elements as string
+        # Safely format clickable elements as string (전체 전송)
         try:
             clickable_elements_str = json.dumps(clickable_elements, indent=2, ensure_ascii=False)
         except Exception as e:
