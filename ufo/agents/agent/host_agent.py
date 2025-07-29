@@ -338,35 +338,15 @@ class HostAgent(BasicAgent):
             utils.print_with_color(
                 "Running Bash Command:", "yellow"
             )
-        utils.print_with_color(
-            "Plans📚: {plan}".format(plan=plan),
-            "cyan",
-        )
-        # plans 음성 출력 제거
-        utils.print_with_color(
-            "Next Selected application📲: {application}".format(
-                application=application
-            ),
-            "yellow",
-        )
-        # Speak the next application
-        try:
-            utils.speak_text(f"{application} 앱을 실행합니다", lang="ko-KR")
-        except Exception as e:
-            print(f"[TTS Error] {e}")
-        utils.print_with_color(
-            "Messages to AppAgent📩: {message}".format(message=message), "cyan"
-        )
-        # messages to appagent 음성 출력 제거
-        utils.print_with_color("Status📊: {status}".format(status=status), "blue")
-        # Speak the status
-        try:
-            utils.speak_text(f"{status}")
-        except Exception as e:
-            print(f"[TTS Error] {e}")
-        utils.print_with_color(
-            "Comment💬: {comment}".format(comment=comment), "green"
-        )
+            utils.print_with_color(bash_command, "white")
+            print()
+        
+        if comment:
+            utils.print_with_color("Additional Info:", "blue")
+            utils.print_with_color(comment, "white")
+            print()
+        
+        print()
 
     @property
     def status_manager(self) -> HostAgentStatus:
