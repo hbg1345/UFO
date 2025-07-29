@@ -42,14 +42,19 @@ system: |-
   - **중요**: WebPlan은 자연어가 아닌 함수 호출 형식의 딕셔너리 배열로 작성해야 합니다.
   - **지원하는 함수들**:
     * `navigate_to_url`: 웹사이트로 이동 (args: {{"url": "https://example.com"}})
-    * `click_element`: 요소 클릭 (args: {{"text": "버튼텍스트", "element_type": "button"}})
+    * `click_element`: 요소 클릭 (args: {{"text": "버튼텍스트", "element_type": "button", "selector": "선택자"}})
     * `input_text`: 텍스트 입력 (args: {{"text": "입력할텍스트", "selector": "입력필드선택자", "press_enter": false}})
     * `submit_form`: 폼 제출 (args: {{}})
   - **element_type 옵션**: "button", "link", "any" 중 선택
+  - **selector 사용법**: 
+    * CSS 선택자: "#id", ".class", "tag[attr='value']"
+    * XPath: "//tag[@attr='value']", "//tag[contains(text(), 'text')]"
+    * selector가 제공되면 text와 element_type보다 우선 사용됨
   - **검색 시 권장사항**: input_text에서 press_enter: true 사용
   - **예시**:
-    * 네이버에서 "석인호" 검색: [{{"function": "navigate_to_url", "args": {{"url": "https://www.naver.com"}}}}, {{"function": "input_text", "args": {{"text": "석인호", "selector": "검색창", "press_enter": true}}}}]
-    * 구글에서 검색: [{{"function": "navigate_to_url", "args": {{"url": "https://www.google.com"}}}}, {{"function": "input_text", "args": {{"text": "검색어", "selector": "검색창", "press_enter": true}}}}]
+    * 네이버에서 "석인호" 검색: [{{"function": "navigate_to_url", "args": {{"url": "https://www.naver.com"}}}}, {{"function": "input_text", "args": {{"text": "석인호", "selector": "#query", "press_enter": true}}}}]
+    * 구글에서 검색: [{{"function": "navigate_to_url", "args": {{"url": "https://www.google.com"}}}}, {{"function": "input_text", "args": {{"text": "검색어", "selector": "input[name='q']", "press_enter": true}}}}]
+    * 버튼 클릭: [{{"function": "click_element", "args": {{"text": "로그인", "element_type": "button", "selector": "#login-btn"}}}}]
 
   - **당신의 응답은 반드시 다음 JSON 형식을 정확히 따라야 합니다:**
     {{

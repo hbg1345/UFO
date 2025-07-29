@@ -117,28 +117,47 @@ class SeleniumWebReceiver(ReceiverBasic):
         except Exception as e:
             return {"found": False, "error": str(e)}
 
-    def click_element(self, text: str, element_type: str = "any") -> str:
+    def click_element(self, text: str, element_type: str = "any", selector: str = None) -> str:
         """
-        Click an element by its text content.
-        :param text: The text to search for.
-        :param element_type: The type of element.
+        Click an element by its text content or selector.
+        :param text: The text to search for (used when selector is not provided).
+        :param element_type: The type of element (used when selector is not provided).
+        :param selector: CSS selector or XPath (takes precedence over text and element_type).
         :return: Success message or error.
         """
         try:
-            # Simple approach: use the arguments as provided by LLM
-            selectors = {
-                "button": "//button[contains(text(), '{}')]",
-                "link": "//a[contains(text(), '{}')]",
-                "any": "//*[contains(text(), '{}')]"
-            }
+            if selector:
+                # Use provided selector (CSS or XPath)
+                if selector.startswith("//"):
+                    # XPath selector
+                    element = self.wait.until(EC.element_to_be_clickable((By.XPATH, selector)))
+                else:
+                    # CSS selector
+                    element = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
+            else:
+                # Fallback to text-based search
+                selectors = {
+                    "button": "//button[contains(text(), '{}')]",
+                    "link": "//a[contains(text(), '{}')]",
+                    "any": "//*[contains(text(), '{}')]"
+                }
+                
+                xpath = selectors.get(element_type, selectors["any"]).format(text)
+                element = self.wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
             
-            xpath = selectors.get(element_type, selectors["any"]).format(text)
-            element = self.wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
             element.click()
             time.sleep(1)
-            return f"Successfully clicked element with text '{text}'"
+            
+            if selector:
+                return f"Successfully clicked element with selector '{selector}'"
+            else:
+                return f"Successfully clicked element with text '{text}'"
+                
         except TimeoutException:
-            return f"Element with text '{text}' not found or not clickable"
+            if selector:
+                return f"Element with selector '{selector}' not found or not clickable"
+            else:
+                return f"Element with text '{text}' not found or not clickable"
         except Exception as e:
             return f"Failed to click element: {e}"
 
@@ -301,7 +320,8 @@ class ClickElementCommand(SeleniumWebCommand):
         """
         text = self.params.get("text", "")
         element_type = self.params.get("element_type", "any")
-        return self.receiver.click_element(text, element_type)
+        selector = self.params.get("selector") # Added selector parameter
+        return self.receiver.click_element(text, element_type, selector)
 
     @classmethod
     def name(cls) -> str:

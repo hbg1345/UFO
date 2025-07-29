@@ -17,13 +17,16 @@ click_element:
   class_name: |-
     ClickElementCommand
   usage: |-
-    [1] API 호출: click_element(text: str, element_type: str = "any")
+    [1] API 호출: click_element(text: str, element_type: str = "any", selector: str = None)
     [2] 인수:
-      - text: 클릭할 요소의 텍스트 내용
+      - text: 클릭할 요소의 텍스트 내용 (selector가 없을 때 사용)
       - element_type: 요소 타입 ("button", "link", "any" 중 선택, 기본값: "any")
+      - selector: CSS 선택자 또는 XPath (text와 element_type보다 우선, 선택사항)
     [3] 예시: 
       - click_element(text="검색", element_type="button")
       - click_element(text="로그인", element_type="link")
+      - click_element(text="버튼", selector="#login-btn")
+      - click_element(text="링크", selector="//a[@href='/login']")
     [4] 사용 가능한 컨트롤: 모든 클릭 가능한 웹 요소
     [5] 반환값: 성공/실패 메시지
 

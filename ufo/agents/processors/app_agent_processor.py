@@ -722,8 +722,9 @@ class AppAgentProcessor(BaseProcessor):
                     elif function == "click_element":
                         text = args.get("text", "")
                         element_type = args.get("element_type", "any")
-                        utils.print_with_color(f"요소 클릭: {text} ({element_type})", "green")
-                        result = self._selenium_receiver.click_element(text, element_type)
+                        selector = args.get("selector", None)
+                        utils.print_with_color(f"요소 클릭: {text} ({element_type}) selector: {selector}", "green")
+                        result = self._selenium_receiver.click_element(text, element_type, selector)
                         utils.print_with_color(f"클릭 결과: {result}", "cyan")
                         
                     elif function == "input_text":
