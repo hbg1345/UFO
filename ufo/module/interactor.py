@@ -80,6 +80,7 @@ def listen_print_loop(responses):
             transcript = result.alternatives[0].transcript
             if result.is_final:
                 break
+        return transcript
     except exceptions.DeadlineExceeded:
         return transcript
     

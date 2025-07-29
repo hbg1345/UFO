@@ -1,9 +1,10 @@
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QPushButton, QPlainTextEdit,
-                                QVBoxLayout, QWidget, QDesktopWidget)
+                                QVBoxLayout, QWidget, QDesktopWidget, QLineEdit)
 from PyQt5.QtCore import QProcess, QProcessEnvironment, Qt, QSize
 from PyQt5.QtGui import QIcon
 import sys
 import os
+from helper import Helper
 
 class MainWindow(QMainWindow):
 
@@ -23,15 +24,53 @@ class MainWindow(QMainWindow):
         self.resize(400, 300)  # 창 크기 설정
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
 
-        self.btn = QPushButton("요청하기")
-        self.btn.pressed.connect(self.start_process)
+        self.command_btn = QPushButton("요청하기")
+        self.command_btn.pressed.connect(self.start_process)
+
+        self.help_btn = QPushButton("도움받기")
+        self.help_btn.pressed.connect(self.start_agent)
+
+        self.command_voice_btn = QPushButton("말로 요청하기")
+        self.command_voice_btn.pressed.connect(self.start_process_voice)
+        self.command_voice_btn.hide()
+
+        self.command_text_btn = QPushButton("글로 요청하기")
+        self.command_text_btn.pressed.connect(self.start_process_text)
+        self.command_text_btn.hide()
+
+        self.end_agent_btn = QPushButton("종료하기")
+        self.end_agent_btn.pressed.connect(self.end_agent)
+        self.end_agent_btn.hide()
+
+        """self.question_voice_btn = QPushButton("말로 질문하기")
+        self.question_voice_btn.pressed.connect(self.ask_question_voice)
+        self.question_voice_btn.hide()
+
+        self.question_text_btn = QPushButton("글로 질문하기")
+        self.question_text_btn.pressed.connect(self.ask_question_text)
+        self.question_text_btn.hide()"""
+
+        self.command_text_input = QLineEdit()
+        self.command_text_input.returnPressed.connect(self.submit_text)
+        self.command_text_input.hide()
+
+        # 다음 단계 버튼 (처음에는 숨김)
+        self.next_btn = QPushButton("다음 단계")
+        self.next_btn.pressed.connect(self.next_instruction)
+        self.next_btn.hide()  # 처음에는 숨김
         
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
 
         l = QVBoxLayout()
-        l.addWidget(self.btn)
+        l.addWidget(self.command_btn)
+        l.addWidget(self.help_btn)
+        l.addWidget(self.next_btn)
+        l.addWidget(self.command_voice_btn)
+        l.addWidget(self.command_text_btn)
+        l.addWidget(self.command_text_input)
         l.addWidget(self.text)
+        l.addWidget(self.end_agent_btn)
 
         w = QWidget()
         w.setLayout(l)
@@ -70,28 +109,63 @@ class MainWindow(QMainWindow):
     def start_process(self):
         if self.p is None:
             self.message("Executing process")
+            self.command_btn.hide()
+            self.help_btn.hide()
+            self.command_voice_btn.show()
+            self.command_text_btn.show()
 
-            # 현재 Python 실행 파일 경로 사용 (가상환경이 활성화되어 있다면 자동으로 사용됨)
-            python_exe = sys.executable
+    def start_process_voice(self):
+        self.message("Executing process with voice recognition")
+        self.command_voice_btn.hide()
+        self.command_text_btn.hide()
+        
+        self._start_ufo_process([])  # 기본 UFO 실행
+
+    def start_process_text(self):
+        self.command_voice_btn.hide()
+        self.command_text_btn.hide()
+        self.command_text_input.show()
+        self.command_text_input.setPlaceholderText("원하는 작업을 입력하세요...")
+        self.command_text_input.setFocus()  # 입력창에 포커스
+
+    def submit_text(self):
+        text = self.command_text_input.text().strip()
+        
+        if not text:  # 빈 텍스트 체크
+            self.message("텍스트를 입력해주세요!")
+            return
             
-            # 또는 시스템 Python 사용
-            # python_exe = "python"
+        self.message(f"Executing process with text: {text}")
+        self.command_text_input.hide()
+        self.command_text_input.clear()  # 입력창 초기화
+        
+        self._start_ufo_process(["-r", text])  # 공통 함수 사용
 
-            self.p = QProcess()
-
-            # UTF-8 환경변수 설정
-            env = QProcessEnvironment.systemEnvironment()
-            env.insert("PYTHONIOENCODING", "utf-8")
-            env.insert("PYTHONUTF8", "1")  # Python 3.7+
-            self.p.setProcessEnvironment(env)
-
-            self.p.readyReadStandardOutput.connect(self.handle_stdout)
-            self.p.readyReadStandardError.connect(self.handle_stderr)
-            self.p.stateChanged.connect(self.handle_state)
-            self.p.finished.connect(self.process_finished)
+    def _start_ufo_process(self, args):
+        """UFO 프로세스를 시작하는 공통 함수"""
+        if self.p is not None:
+            self.message("Process already running!")
+            return
             
-            # UFO 모듈 실행 (task_name 대신 실제 사용자 입력을 받거나 기본값 사용)
-            self.p.start(python_exe, ["-m", "ufo"])
+        # 현재 Python 실행 파일 경로 사용 (가상환경이 활성화되어 있다면 자동으로 사용됨)
+        python_exe = sys.executable
+        
+        self.p = QProcess()
+
+        # UTF-8 환경변수 설정
+        env = QProcessEnvironment.systemEnvironment()
+        env.insert("PYTHONIOENCODING", "utf-8")
+        env.insert("PYTHONUTF8", "1")  # Python 3.7+
+        self.p.setProcessEnvironment(env)
+
+        self.p.readyReadStandardOutput.connect(self.handle_stdout)
+        self.p.readyReadStandardError.connect(self.handle_stderr)
+        self.p.stateChanged.connect(self.handle_state)
+        self.p.finished.connect(self.process_finished)
+        
+        # UFO 모듈 실행
+        cmd_args = ["-m", "ufo"] + args
+        self.p.start(python_exe, cmd_args)
 
     def handle_stdout(self):
         data = self.p.readAllStandardOutput()
@@ -114,6 +188,49 @@ class MainWindow(QMainWindow):
     def process_finished(self):
         self.message("Process finished")
         self.p = None
+        # 프로세스 종료 후 초기 상태로 복귀
+        self.reset_to_initial_state()
+    
+    def reset_to_initial_state(self):
+        """모든 버튼을 초기 상태로 복귀"""
+        self.command_btn.show()
+        self.help_btn.show()
+        self.next_btn.hide()
+        self.command_voice_btn.hide()
+        self.command_text_btn.hide()
+        self.command_text_input.hide()
+        self.command_text_input.clear()
+        self.text.clear()
+        self.end_agent_btn.hide()
+
+    def start_agent(self):
+        self.help_btn.hide()  # 도움받기 버튼 숨기기
+        self.command_btn.hide()  # 요청하기 버튼 숨기기
+        self.end_agent_btn.show()
+
+        self.message("Starting agent")
+        self.helper = Helper()
+        request = self.helper.get_request()
+        self.message(f"request: {request}")
+        response = self.helper.first_instruction(request)
+        self.message(f"response: {response}")
+        
+        # 첫 번째 응답 후 다음 단계 버튼 표시
+        self.next_btn.show()
+    
+    def next_instruction(self, query="이 화면에서 뭘 해야해?"):
+        self.message("Getting next instruction...")
+        response = self.helper.next_instruction(query)
+        self.message(f"response: {response}")
+        
+        # 응답이 완료되었는지 확인하여 버튼 상태 변경
+        if hasattr(response, 'is_done') and response.is_done:
+            self.end_agent()
+
+    def end_agent(self):
+        self.reset_to_initial_state()
+        self.helper = None
+
 
 
 if __name__ == "__main__":
