@@ -30,12 +30,18 @@ class MainWindow(QMainWindow):
         self.help_btn = QPushButton("도움받기")
         self.help_btn.pressed.connect(self.start_agent)
         
+        # 다음 단계 버튼 (처음에는 숨김)
+        self.next_btn = QPushButton("다음 단계")
+        self.next_btn.pressed.connect(self.next_instruction)
+        self.next_btn.hide()  # 처음에는 숨김
+        
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
 
         l = QVBoxLayout()
         l.addWidget(self.command_btn)
         l.addWidget(self.help_btn)
+        l.addWidget(self.next_btn)
         l.addWidget(self.text)
 
         w = QWidget()
@@ -118,16 +124,31 @@ class MainWindow(QMainWindow):
         self.p = None
 
     def start_agent(self):
+        self.help_btn.hide()  # 도움받기 버튼 숨기기
+        self.command_btn.hide()  # 요청하기 버튼 숨기기
+
         self.message("Starting agent")
         self.helper = Helper()
         request = self.helper.get_request()
         self.message(f"request: {request}")
         response = self.helper.first_instruction(request)
         self.message(f"response: {response}")
+        
+        # 첫 번째 응답 후 다음 단계 버튼 표시
+        self.next_btn.show()
+    
+    def next_instruction(self):
+        self.message("Getting next instruction...")
+        response = self.helper.next_instruction()
+        self.message(f"response: {response}")
+        
+        # 응답이 완료되었는지 확인하여 버튼 상태 변경
+        if hasattr(response, 'is_done') and response.is_done:
+            self.next_btn.hide()
+            self.help_btn.show()
+            self.command_btn.show()
+            self.message("Task completed!")
 
-        while not response.is_done:
-            response = self.helper.next_instruction()
-            self.message(f"response: {response}")
 
 
 if __name__ == "__main__":
