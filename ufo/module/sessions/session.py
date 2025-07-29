@@ -185,9 +185,25 @@ class Session(BaseSession):
         """
 
         self._mode = mode
+        self._selenium_receiver = None  # Session-level Selenium receiver
         super().__init__(task, should_evaluate, id)
 
         self._init_request = request
+
+    def get_or_create_selenium_receiver(self):
+        """
+        Get or create a session-level Selenium receiver.
+        :return: SeleniumWebReceiver instance.
+        """
+        if self._selenium_receiver is None:
+            try:
+                from ufo.automator.app_apis.web.selenium_webclient import SeleniumWebReceiver
+                self._selenium_receiver = SeleniumWebReceiver()
+                utils.print_with_color("Session-level Selenium receiver created.", "green")
+            except Exception as e:
+                utils.print_with_color(f"Failed to create session-level Selenium receiver: {e}", "red")
+                return None
+        return self._selenium_receiver
 
     def run(self) -> None:
         """
@@ -219,6 +235,7 @@ class Session(BaseSession):
         super()._init_context()
 
         self.context.set(ContextNames.MODE, self._mode)
+        self.context.set(ContextNames.SESSION, self)  # Store session object in context
 
     def create_new_round(self) -> None:
         """

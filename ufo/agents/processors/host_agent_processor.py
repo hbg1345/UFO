@@ -95,6 +95,7 @@ class HostAgentProcessor(BaseProcessor):
         self._is_web_request = False
         self._selenium_receiver = None
         self._web_plan = []
+        self._modified_plan = None  # For storing modified plans from LLM
 
     def _extract_url_from_request(self, user_request: str) -> str:
         """

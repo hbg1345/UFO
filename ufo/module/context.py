@@ -49,6 +49,7 @@ class ContextNames(Enum):
         "CURRENT_ROUND_SUBTASK_AMOUNT"  # The amount of subtasks in the current round
     )
     STRUCTURAL_LOGS = "STRUCTURAL_LOGS"  # The structural logs of the session
+    SESSION = "SESSION"  # The session object itself
 
     @property
     def default_value(self) -> Any:
@@ -99,6 +100,8 @@ class ContextNames(Enum):
             return None  # Assuming UIAWrapper should be initialized elsewhere
         elif self == ContextNames.STRUCTURAL_LOGS:
             return defaultdict(lambda: defaultdict(list))
+        elif self == ContextNames.SESSION:
+            return None  # Session object will be set by the session itself
         else:
             return None
 
@@ -121,6 +124,7 @@ class ContextNames(Enum):
             self == ContextNames.SESSION_STEP
             or self == ContextNames.CURRENT_ROUND_ID
             or self == ContextNames.CURRENT_ROUND_STEP
+            or self == ContextNames.CURRENT_ROUND_SUBTASK_AMOUNT
             or self == ContextNames.ID
             or self == ContextNames.ROUND_SUBTASK_AMOUNT
         ):
@@ -150,6 +154,8 @@ class ContextNames(Enum):
             return Logger
         elif self == ContextNames.APPLICATION_WINDOW:
             return UIAWrapper
+        elif self == ContextNames.SESSION:
+            return Any  # Session object type
         else:
             return Any
 
