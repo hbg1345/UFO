@@ -27,6 +27,10 @@ class MainWindow(QMainWindow):
         self.command_btn = QPushButton("요청하기")
         self.command_btn.pressed.connect(self.start_process)
 
+        self.end_command_btn = QPushButton("종료하기")
+        self.end_command_btn.pressed.connect(self.end_process)
+        self.end_command_btn.hide()
+
         self.help_btn = QPushButton("도움받기")
         self.help_btn.pressed.connect(self.start_agent)
 
@@ -70,6 +74,7 @@ class MainWindow(QMainWindow):
         l.addWidget(self.command_text_btn)
         l.addWidget(self.command_text_input)
         l.addWidget(self.text)
+        l.addWidget(self.end_command_btn)
         l.addWidget(self.end_agent_btn)
 
         w = QWidget()
@@ -113,6 +118,7 @@ class MainWindow(QMainWindow):
             self.help_btn.hide()
             self.command_voice_btn.show()
             self.command_text_btn.show()
+            self.end_command_btn.show()
 
     def start_process_voice(self):
         self.message("Executing process with voice recognition")
@@ -144,8 +150,10 @@ class MainWindow(QMainWindow):
     def _start_ufo_process(self, args):
         """UFO 프로세스를 시작하는 공통 함수"""
         if self.p is not None:
-            self.message("Process already running!")
-            return
+            self.message("기존 프로세스를 종료하고 새로 시작합니다...")
+            self.p.kill()
+            self.p.waitForFinished(1000)
+            self.p = None
             
         # 현재 Python 실행 파일 경로 사용 (가상환경이 활성화되어 있다면 자동으로 사용됨)
         python_exe = sys.executable
@@ -186,10 +194,20 @@ class MainWindow(QMainWindow):
         self.message("State changed to %s" % states[s])
 
     def process_finished(self):
-        self.message("Process finished")
+        self.message("요청 수행을 완료했어요!")
+        if self.p is not None:
+            self.p.kill()  # 강제 종료
+            self.p.waitForFinished(1000)  # 3초 대기
         self.p = None
         # 프로세스 종료 후 초기 상태로 복귀
         self.reset_to_initial_state()
+
+    def end_process(self):
+        self.p.kill()
+        self.p.waitForFinished(1000)
+        self.p = None
+        self.reset_to_initial_state()
+        self.message("요청 수행을 중단했어요!")
     
     def reset_to_initial_state(self):
         """모든 버튼을 초기 상태로 복귀"""
@@ -202,7 +220,8 @@ class MainWindow(QMainWindow):
         self.command_text_input.clear()
         self.text.clear()
         self.end_agent_btn.hide()
-
+        self.end_command_btn.hide()
+    
     def start_agent(self):
         self.help_btn.hide()  # 도움받기 버튼 숨기기
         self.command_btn.hide()  # 요청하기 버튼 숨기기
