@@ -111,7 +111,7 @@ def recognize_speech_assemblyai_streaming():
         except Exception as e:
             print(f"[TTS Error] {e}")
         print("🎤 음성 인식을 시작합니다...")
-        #return input()
+        return input()
         responses = client.streaming_recognize(streaming_config, requests, timeout=TIMEOUT_FROM_RESPONSE)
         result = listen_print_loop(responses)
         print(result)

@@ -108,12 +108,20 @@ class HostAgentProcessor(BaseProcessor):
 
     def _create_selenium_receiver(self) -> None:
         """
-        Create Selenium Web receiver for web automation.
+        Get or create Selenium Web receiver for web automation.
         """
         try:
             from ufo.automator.app_apis.web.selenium_webclient import SeleniumWebReceiver
-            self._selenium_receiver = SeleniumWebReceiver()
-            utils.print_with_color("Selenium Web receiver created successfully.", "green")
+            
+            # Get session-level Selenium receiver instead of creating a new one
+            session = self.context.get(ContextNames.SESSION)
+            if session:
+                self._selenium_receiver = session.get_or_create_selenium_receiver()
+                utils.print_with_color("Session-level Selenium receiver retrieved successfully.", "green")
+            else:
+                # Fallback: create new receiver if session is not available
+                self._selenium_receiver = SeleniumWebReceiver()
+                utils.print_with_color("New Selenium receiver created (fallback).", "yellow")
         except Exception as e:
             utils.print_with_color(f"Failed to create Selenium receiver: {e}", "red")
             self._selenium_receiver = None

@@ -612,7 +612,7 @@ class AppAgentProcessor(BaseProcessor):
         """
         web_functions = [
             "navigate_to_url", "click_element", "input_text", 
-            "get_page_source", "get_clickable_elements"
+            "get_page_source", "get_clickable_elements", "submit_form"
         ]
         return self._operation in web_functions
 
@@ -623,9 +623,16 @@ class AppAgentProcessor(BaseProcessor):
         try:
             from ufo.automator.app_apis.web.selenium_webclient import SeleniumWebReceiver
             
-            # Create Selenium receiver if not exists
-            if not hasattr(self, '_selenium_receiver') or self._selenium_receiver is None:
-                self._selenium_receiver = SeleniumWebReceiver()
+            # Get session-level Selenium receiver instead of creating a new one
+            session = self.context.get(ContextNames.SESSION)
+            if session:
+                self._selenium_receiver = session.get_or_create_selenium_receiver()
+                utils.print_with_color("Session-level Selenium receiver를 사용합니다.", "green")
+            else:
+                # Fallback: create new receiver if session is not available
+                if not hasattr(self, '_selenium_receiver') or self._selenium_receiver is None:
+                    utils.print_with_color("새로운 Selenium receiver를 생성합니다.", "yellow")
+                    self._selenium_receiver = SeleniumWebReceiver()
             
             utils.print_with_color(f"웹 자동화 실행: {self._operation}", "green")
             
@@ -656,6 +663,10 @@ class AppAgentProcessor(BaseProcessor):
                 result = self._selenium_receiver.get_all_clickable_elements()
                 utils.print_with_color(f"클릭 가능한 요소 {len(result)}개 발견", "cyan")
                 
+            elif self._operation == "submit_form":
+                result = self._selenium_receiver.submit_form()
+                utils.print_with_color(f"폼 제출 결과: {result}", "cyan")
+                
             else:
                 utils.print_with_color(f"지원하지 않는 웹 액션: {self._operation}", "red")
                 return
@@ -677,10 +688,16 @@ class AppAgentProcessor(BaseProcessor):
             utils.print_with_color("_execute_web_plan 메서드 시작", "magenta")
             utils.print_with_color(f"실행할 웹 계획: {self.plan}", "cyan")
             
-            # Create Selenium receiver if not exists
-            if not hasattr(self, '_selenium_receiver') or self._selenium_receiver is None:
-                utils.print_with_color("Selenium receiver를 생성합니다.", "yellow")
-                self._selenium_receiver = SeleniumWebReceiver()
+            # Get session-level Selenium receiver instead of creating a new one
+            session = self.context.get(ContextNames.SESSION)
+            if session:
+                self._selenium_receiver = session.get_or_create_selenium_receiver()
+                utils.print_with_color("Session-level Selenium receiver를 사용합니다.", "green")
+            else:
+                # Fallback: create new receiver if session is not available
+                if not hasattr(self, '_selenium_receiver') or self._selenium_receiver is None:
+                    utils.print_with_color("새로운 Selenium receiver를 생성합니다.", "yellow")
+                    self._selenium_receiver = SeleniumWebReceiver()
             
             utils.print_with_color("HostAgent의 웹 자동화 계획을 실행합니다.", "green")
             

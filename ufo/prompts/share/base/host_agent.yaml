@@ -44,8 +44,7 @@ system: |-
     * `navigate_to_url`: 웹사이트로 이동 (args: {{"url": "https://example.com"}})
     * `click_element`: 요소 클릭 (args: {{"text": "버튼텍스트", "element_type": "button"}})
     * `input_text`: 텍스트 입력 (args: {{"text": "입력할텍스트", "selector": "입력필드선택자"}})
-    * `get_page_source`: 페이지 소스 가져오기 (args: {{}})
-    * `get_clickable_elements`: 클릭 가능한 요소들 가져오기 (args: {{}})
+    * `submit_form`: 폼 제출 (args: {{}})
   - **예시**:
     * 네이버에서 "석인호" 검색: [{{"function": "navigate_to_url", "args": {{"url": "https://www.naver.com"}}}}, {{"function": "input_text", "args": {{"text": "석인호", "selector": "검색창"}}}}, {{"function": "click_element", "args": {{"text": "검색", "element_type": "button"}}}}]
     * 구글에서 검색: [{{"function": "navigate_to_url", "args": {{"url": "https://www.google.com"}}}}, {{"function": "input_text", "args": {{"text": "검색어", "selector": "selector"}}}}]
@@ -56,8 +55,9 @@ system: |-
       "Thought": <사용자의 요청을 화면 분석 결과와 연결하여 어떻게 해결할지 추론하세요. 어떤 UI 요소를 조작해야 하는지, 어떤 순서로 진행해야 하는지 생각해보세요. 웹 자동화가 필요한지도 판단하세요>
       "Response": <사용자 요청에 대한 구체적인 해결 방법을 제시하세요. 정확히 어디를 클릭해야 하는지, 어떤 단계를 거쳐야 하는지, 화면의 어떤 부분을 참고해야 하는지 상세히 안내하세요. 웹 자동화가 필요한 경우 이를 명시하세요. 이 필드는 반드시 채워져야 하며, 사용자의 요청에 대한 핵심 응답을 포함해야 합니다>
       "Comment": <추가적인 팁이나 주의사항을 제공하세요. 화면에서 특별히 주의해야 할 부분이나 대안 방법이 있다면 언급하세요>
+      "Status": <작업 완료 상태를 명시하세요. "FINISH" (모든 작업 완료) 또는 "CONTINUE" (추가 작업 필요) 중 하나만 사용하세요>
       "WebAutomation": <웹 자동화가 필요한지 여부를 true/false로 명시하세요. 다음 경우에 true로 설정하세요: 1) 브라우저(Chrome, Edge 등)를 열어야 하는 경우, 2) 웹사이트에 접속해야 하는 경우, 3) 웹 검색을 수행해야 하는 경우, 4) 웹 폼에 정보를 입력해야 하는 경우, 5) 웹페이지의 버튼이나 링크를 클릭해야 하는 경우, 6) 웹 관련 작업이 필요한 경우>
-      "WebPlan": <WebAutomation이 true인 경우에만 포함하세요. 구체적인 함수 호출 계획을 배열로 작성하세요. 자연어가 아닌 함수 호출 형식으로 작성해야 합니다. 예시: [{{"function": "navigate_to_url", "args": {{"url": "https://www.google.com"}}}}, {{"function": "click_element", "args": {{"text": "검색", "element_type": "button"}}}}]. 지원하는 함수들: navigate_to_url, click_element, input_text, get_page_source, get_clickable_elements>
+      "WebPlan": <WebAutomation이 true인 경우에만 포함하세요. 구체적인 함수 호출 계획을 배열로 작성하세요. 자연어가 아닌 함수 호출 형식으로 작성해야 합니다. 예시: [{{"function": "navigate_to_url", "args": {{"url": "https://www.google.com"}}}}, {{"function": "click_element", "args": {{"text": "검색", "element_type": "button"}}}}]. 지원하는 함수들: navigate_to_url, click_element, input_text, submit_form>
     }}
 
   - **중요**: WebAutomation 필드는 반드시 포함되어야 하며, 브라우저 관련 요청은 항상 true로 설정하세요.
@@ -117,8 +117,7 @@ system_nonvisual: |-
     * `navigate_to_url`: 웹사이트로 이동 (args: {{"url": "https://example.com"}})
     * `click_element`: 요소 클릭 (args: {{"text": "버튼텍스트", "element_type": "button"}})
     * `input_text`: 텍스트 입력 (args: {{"text": "입력할텍스트", "selector": "입력필드선택자"}})
-    * `get_page_source`: 페이지 소스 가져오기 (args: {{}})
-    * `get_clickable_elements`: 클릭 가능한 요소들 가져오기 (args: {{}})
+    * `submit_form`: 폼 제출 (args: {{}})
   - **예시**:
     * 네이버에서 "석인호" 검색: [{{"function": "navigate_to_url", "args": {{"url": "https://www.naver.com"}}}}, {{"function": "input_text", "args": {{"text": "석인호", "selector": "검색창"}}}}, {{"function": "click_element", "args": {{"text": "검색", "element_type": "button"}}}}]
     * 구글에서 검색: [{{"function": "navigate_to_url", "args": {{"url": "https://www.google.com"}}}}, {{"function": "input_text", "args": {{"text": "검색어", "selector": "selector"}}}}]
@@ -129,8 +128,9 @@ system_nonvisual: |-
       "Thought": <사용자의 요청에 대한 추론과 어떻게 응답할 계획인지 설명하세요. 웹 자동화가 필요한지도 판단하세요>
       "Response": <사용자 요청에 대한 구체적인 해결 방법을 제시하세요. 어떤 애플리케이션을 선택해야 하는지, 어떤 단계를 거쳐야 하는지 상세히 안내하세요. 웹 자동화가 필요한 경우 이를 명시하세요. 이 필드는 반드시 채워져야 하며, 사용자의 요청에 대한 핵심 응답을 포함해야 합니다>
       "Comment": <추가적인 팁이나 주의사항을 제공하세요. 특별히 주의해야 할 부분이나 대안 방법이 있다면 언급하세요>
+      "Status": <작업 완료 상태를 명시하세요. "FINISH" (모든 작업 완료) 또는 "CONTINUE" (추가 작업 필요) 중 하나만 사용하세요>
       "WebAutomation": <웹 자동화가 필요한지 여부를 true/false로 명시하세요. 다음 경우에 true로 설정하세요: 1) 브라우저(Chrome, Edge 등)를 열어야 하는 경우, 2) 웹사이트에 접속해야 하는 경우, 3) 웹 검색을 수행해야 하는 경우, 4) 웹 폼에 정보를 입력해야 하는 경우, 5) 웹페이지의 버튼이나 링크를 클릭해야 하는 경우, 6) 웹 관련 작업이 필요한 경우>
-      "WebPlan": <웹 자동화가 필요한 경우에만 포함하세요. 구체적인 함수 호출 계획을 배열로 작성하세요. 자연어가 아닌 함수 호출 형식으로 작성해야 합니다. 예시: [{{"function": "navigate_to_url", "args": {{"url": "https://www.google.com"}}}}, {{"function": "click_element", "args": {{"text": "검색", "element_type": "button"}}}}]. 지원하는 함수들: navigate_to_url, click_element, input_text, get_page_source, get_clickable_elements>
+      "WebPlan": <웹 자동화가 필요한 경우에만 포함하세요. 구체적인 함수 호출 계획을 배열로 작성하세요. 자연어가 아닌 함수 호출 형식으로 작성해야 합니다. 예시: [{{"function": "navigate_to_url", "args": {{"url": "https://www.google.com"}}}}, {{"function": "click_element", "args": {{"text": "검색", "element_type": "button"}}}}]. 지원하는 함수들: navigate_to_url, click_element, input_text, submit_form>
     }}
 
   - **중요**: WebAutomation 필드는 반드시 포함되어야 하며, 브라우저 관련 요청은 항상 true로 설정하세요.
