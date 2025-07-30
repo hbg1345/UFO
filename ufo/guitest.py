@@ -371,6 +371,7 @@ class MainWindow(QMainWindow):
             return
 
         self.text_box_layout.setCurrentIndex(0)
+        self.info_text.setText("잠시만 기다려 주세요...")   
         self.command_btns.hide()
         self.cancel_btn.show()
 
@@ -402,7 +403,12 @@ class MainWindow(QMainWindow):
     def handle_stdout(self):
         data = self.p.readAllStandardOutput()
         stdout = bytes(data).decode("utf8", errors="replace")
-        self.message(stdout)
+        if stdout.startswith("STT:"):
+            message = stdout.split(":")[1]
+            self.message(message)
+            self.speak(message)
+        else:
+            self.message(stdout)
 
     def handle_stderr(self):
         data = self.p.readAllStandardError()
@@ -447,10 +453,14 @@ class MainWindow(QMainWindow):
         
         response = self.helper.first_instruction(request)
         self.message(response.instruction)
+        self.speak(response.instruction)
         self.help_btns.hide()
         self.helping_btns.show()
     
     def next_instruction(self, query="이 화면에서 뭘 해야해?"):
+        self.text_box_layout.setCurrentIndex(0)
+        self.question_btns.hide()
+        self.helping_btns.show()
         self.message("잠시만 기다려 주세요...")
         
         # UI 업데이트를 강제로 처리
@@ -458,6 +468,7 @@ class MainWindow(QMainWindow):
         
         response = self.helper.next_instruction(query)
         self.message(response.instruction)
+        self.speak(response.instruction)
         
         # 응답이 완료되었는지 확인하여 버튼 상태 변경
         if hasattr(response, 'is_done') and response.is_done:
@@ -478,6 +489,7 @@ class MainWindow(QMainWindow):
 
     def submit_question_text(self):
         question = self.question_text_input.toPlainText().strip()
+        self.question_text_input.clear()
         self.next_instruction(question)
 
 
