@@ -1,11 +1,12 @@
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QPushButton, QPlainTextEdit,
                                 QVBoxLayout, QHBoxLayout, QWidget, QDesktopWidget, QLabel, QStackedLayout, QLineEdit)
-from PyQt5.QtCore import QProcess, QProcessEnvironment, Qt, QSize, QTimer
+from PyQt5.QtCore import QProcess, QProcessEnvironment, Qt, QSize, QTimer, QThreadPool
 from PyQt5.QtGui import QIcon, QPixmap
 import sys
 import os
 from helper import Helper
 from stt import recognize_speech_streaming
+from tts import SpeakThread
 
 class MainWindow(QMainWindow):
 
@@ -14,7 +15,7 @@ class MainWindow(QMainWindow):
 
         self.p = None
         self.helper = None
-
+        self.threadpool = QThreadPool()
         self.setWindowTitle("INO")
 
         icon = QIcon()
@@ -188,10 +189,6 @@ class MainWindow(QMainWindow):
         # 애니메이션 타이머 설정
         self.animation_timer = QTimer()
         self.animation_timer.timeout.connect(self.update_character_animation)
-        self.animation_timer.start(800)  # 1초마다 이미지 변경
-        
-        # 초기 이미지 설정
-        self.update_character_animation()
     
 
         l = QVBoxLayout()
@@ -212,6 +209,7 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(w)
         self.reset_to_initial_state()
+        self.speak("안녕하세요! 저는 이노예요")
 
     def apply_styles(self):
         """QSS 스타일 적용"""
@@ -330,7 +328,6 @@ class MainWindow(QMainWindow):
         """모든 버튼을 초기 상태로 복귀"""
         # 애니메이션 다시 시작 및 캐릭터 표시
         self.character.show()
-        self.animation_timer.start(1000)
         
         self.text_box_layout.setCurrentIndex(0)
         self.info_text.setText("컴퓨터 조작을 요청하고 싶으시면 \n요청하기 버튼을 눌러 주세요. \n컴퓨터 사용 도움말이 필요하면 \n도움받기 버튼을 눌러 주세요.")
@@ -344,6 +341,17 @@ class MainWindow(QMainWindow):
         self.cancel_btn.hide()
         self.main_btns.show()
         self.exit_btn.show()
+
+    def speak(self, text: str):
+        self.animation_timer.start(500)
+        speak_thread = SpeakThread(text)
+        self.threadpool.start(speak_thread)
+        speak_thread.signals.finished.connect(self.stop_animation)
+    
+    def stop_animation(self):
+        self.animation_timer.stop()
+        self.current_character = 0
+        self.update_character_animation()
 
     def message(self, s):
         self.info_text.setText(s)
@@ -421,8 +429,13 @@ class MainWindow(QMainWindow):
         self.cancel_btn.show()
 
     def start_help_voice(self):
+        self.text_box_layout.setCurrentIndex(0)
         self.help_btns.hide()
-        self.start_agent(recognize_speech_streaming())
+        self.message("음성 인식 중이에요. 하고 싶은 일을 말씀해 주세요!")
+        QApplication.processEvents()
+        request = recognize_speech_streaming()
+        self.message(request)
+        self.start_agent(request)
     
     def start_agent(self, request):
         self.helper = Helper()
@@ -448,7 +461,7 @@ class MainWindow(QMainWindow):
         
         # 응답이 완료되었는지 확인하여 버튼 상태 변경
         if hasattr(response, 'is_done') and response.is_done:
-            self.end_agent()
+            self.reset_to_initial_state()
 
     def start_question(self):
         self.text_box_layout.setCurrentIndex(3)
