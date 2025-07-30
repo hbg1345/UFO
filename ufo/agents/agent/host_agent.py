@@ -189,12 +189,8 @@ class HostAgent(BasicAgent):
             user_request=request,
             html_source=html_source,
             selenium_status=selenium_status,
+            blackboard_prompt=blackboard_prompt,
         )
-
-        if blackboard_prompt:
-            hostagent_prompt_user_message = (
-                blackboard_prompt + hostagent_prompt_user_message
-            )
 
         hostagent_prompt_message = self.prompter.prompt_construction(
             hostagent_prompt_system_message, hostagent_prompt_user_message

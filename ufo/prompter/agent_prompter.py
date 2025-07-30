@@ -81,6 +81,7 @@ class HostAgentPrompter(BasicPrompter):
         retrieved_docs: str = "",
         html_source: str = "",
         selenium_status: str = "",
+        blackboard_prompt: List[str] = [],
     ) -> List[Dict[str, str]]:
         """
         Construct the prompt for LLMs.
@@ -92,6 +93,7 @@ class HostAgentPrompter(BasicPrompter):
         :param retrieved_docs: The retrieved documents.
         :param html_source: The HTML source code for web automation.
         :param selenium_status: The status of Selenium WebDriver.
+        :param blackboard_prompt: The blackboard prompt information.
         return: The prompt for LLMs.
         """
 
@@ -114,6 +116,7 @@ class HostAgentPrompter(BasicPrompter):
                     user_request=user_request,
                     html_source=html_source,
                     selenium_status=selenium_status,
+                    blackboard_prompt=json.dumps(blackboard_prompt),
                 ),
             }
         )

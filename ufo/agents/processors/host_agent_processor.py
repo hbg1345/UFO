@@ -290,10 +290,8 @@ class HostAgentProcessor(BaseProcessor):
         Get the prompt message.
         """
 
-        if not self.host_agent.blackboard.is_empty():
-            blackboard_prompt = self.host_agent.blackboard.blackboard_to_prompt()
-        else:
-            blackboard_prompt = []
+        # Remove blackboard from prompt to reduce context size
+        blackboard_prompt = []
 
         # Construct the prompt message for the host agent.
         self._prompt_message = self.host_agent.message_constructor(
@@ -419,11 +417,12 @@ class HostAgentProcessor(BaseProcessor):
             clickable_elements = []
             if self._selenium_receiver and self._selenium_receiver.driver:
                 try:
-                    html_source = self._selenium_receiver.get_page_source()
+                    # Use interactive elements instead of full HTML source
+                    html_source = self._extract_interactive_elements()
                     clickable_elements = self._selenium_receiver.get_all_clickable_elements()
-                    utils.print_with_color("HTML 소스와 클릭 가능한 요소들을 성공적으로 가져왔습니다.", "green")
+                    utils.print_with_color("인터랙티브 요소들을 성공적으로 가져왔습니다.", "green")
                 except Exception as e:
-                    utils.print_with_color(f"HTML 소스 가져오기 실패: {e}", "yellow")
+                    utils.print_with_color(f"인터랙티브 요소 가져오기 실패: {e}", "yellow")
             
             # Use LLM's WebPlan
             self._web_plan = self.web_plan
@@ -448,11 +447,55 @@ class HostAgentProcessor(BaseProcessor):
 
         # Handle Status field for session control
         status_from_llm = self._response_json.get("Status", "").upper()
+        comment_from_llm = self._response_json.get("Comment", "")
+        
         if status_from_llm == "FINISH":
             utils.print_with_color("LLM이 FINISH 상태를 반환했습니다. 세션을 종료합니다.", "yellow")
+            if comment_from_llm:
+                utils.print_with_color(f"LLM Comment: {comment_from_llm}", "cyan")
             self.status = self._agent_status_manager.FINISH.value
         elif status_from_llm == "CONTINUE":
+            utils.print_with_color("작업 후 LLM이 CONTINUE 상태를 반환했습니다. 남은 계획을 실행합니다.", "yellow")
+            if comment_from_llm:
+                utils.print_with_color(f"LLM Comment (CONTINUE 이유): {comment_from_llm}", "red")
             self.status = self._agent_status_manager.CONTINUE.value
+            self._web_plan = self._response_json.get("WebPlan", [])
+            
+            # If Selenium is running, get current page info for better planning
+            if self._selenium_receiver and self._selenium_receiver.driver:
+                try:
+                    utils.print_with_color("Selenium이 실행 중이므로 현재 페이지 정보를 가져옵니다.", "cyan")
+                    current_url = self._selenium_receiver.driver.current_url
+                    page_title = self._selenium_receiver.get_page_title()
+                    
+                    # Get interactive elements for better context
+                    html_source = self._extract_interactive_elements()
+                    
+                    # Update HTML source for next round
+                    self.html_source = html_source
+                    
+                    utils.print_with_color(f"현재 페이지: {page_title}", "cyan")
+                    utils.print_with_color(f"현재 URL: {current_url}", "cyan")
+                    utils.print_with_color("HTML 소스 정보가 다음 라운드에 포함됩니다.", "green")
+                    
+                except Exception as e:
+                    utils.print_with_color(f"현재 페이지 정보 가져오기 실패: {e}", "yellow")
+            
+            # Clean up context for new round to prevent context overflow
+            utils.print_with_color("새로운 라운드를 위해 컨텍스트를 정리합니다.", "cyan")
+            try:
+                # Clear accumulated page info to prevent context overflow
+                if hasattr(self, '_desktop_screen_url'):
+                    self._desktop_screen_url = None
+                
+                # Clear any accumulated HTML/context data
+                if hasattr(self, 'clickable_elements'):
+                    self.clickable_elements = []
+                
+                utils.print_with_color("컨텍스트 정리 완료 - 새로운 라운드 준비됨", "green")
+                
+            except Exception as cleanup_error:
+                utils.print_with_color(f"컨텍스트 정리 중 오류: {cleanup_error}", "yellow")
 
     @BaseProcessor.exception_capture
     @BaseProcessor.method_timer
@@ -533,9 +576,7 @@ class HostAgentProcessor(BaseProcessor):
                         step_result = {
                             'step': i + 1,
                             'function': function,
-                            'args': args,
                             'success': False,
-                            'result': '',
                             'error': ''
                         }
                         
@@ -547,7 +588,6 @@ class HostAgentProcessor(BaseProcessor):
                                 result = self._selenium_receiver.navigate_to_url(url)
                                 utils.print_with_color(f"네비게이션 결과: {result}", "cyan")
                                 step_result['success'] = True
-                                step_result['result'] = result
                                 
                             elif function == "click_element":
                                 text = args.get("text", "")
@@ -580,6 +620,12 @@ class HostAgentProcessor(BaseProcessor):
                                     }
                                     
                                     # Send feedback to HostAgent for plan modification
+                                    # First check if the user's request is already completed using existing logic
+                                    if self._check_completion_status():
+                                        utils.print_with_color("사용자 요청이 이미 완수되었습니다. 작업을 종료합니다.", "green")
+                                        self.status = self._agent_status_manager.FINISH.value
+                                        return
+                                    
                                     self._request_plan_modification(execution_results, failed_step, current_page_info)
                                     break  # Stop execution and wait for new plan
                                 
@@ -590,11 +636,10 @@ class HostAgentProcessor(BaseProcessor):
                                 press_enter = args.get("press_enter", False)
                                 utils.print_with_color(f"텍스트 입력: {text} (selector: {selector}, press_enter: {press_enter})", "green")
                                 result = self._selenium_receiver.input_text(text, selector, clear_first, press_enter)
-                                utils.print_with_color(f"텍스트 입력 결과: {result}", "cyan")
                                 
                                 # Check if input was successful
                                 if "not found" in result or "failed" in result or "Failed" in result:
-                                    utils.print_with_color(f"수정된 계획의 텍스트 입력 실패: {result}", "red")
+                                    utils.print_with_color(f"텍스트 입력 실패: {result}", "red")
                                     
                                     # Update step_result with failure information
                                     step_result['success'] = False
@@ -617,6 +662,8 @@ class HostAgentProcessor(BaseProcessor):
                                     # Send feedback to HostAgent for plan modification
                                     self._request_plan_modification(execution_results, failed_step, current_page_info)
                                     break  # Stop execution and wait for new plan
+                                else:
+                                    utils.print_with_color(f"텍스트 입력 성공: {result}", "cyan")
                                 
                             elif function == "get_page_source":
                                 utils.print_with_color("페이지 소스 가져오기", "green")
@@ -697,75 +744,154 @@ class HostAgentProcessor(BaseProcessor):
 
         # 2. Ask LLM to judge if the user's request is truly complete
         original_request = self.context.get(ContextNames.REQUEST)
+        
+        # Get blackboard information for context
+        blackboard_context = "Blackboard information removed to reduce context size."
+        
+        # Get interactive elements information
+        interactive_elements = self._extract_interactive_elements()
+        
         post_action_prompt = [
-            {"role": "system", "content": f"""당신은 사용자의 요청이 실제로 완료되었는지 판단하는 전문가입니다.
+            {"role": "system", "content": f"""You are an expert in determining whether a user's request has been actually completed.
 
-사용자의 원래 요청: '{original_request}'
+Original user request: '{original_request}'
 
-**중요한 판단 기준:**
-1. **음악/영상 관련 요청**: 실제로 음악이 재생되거나 영상이 재생되어야 완료
-2. **검색 관련 요청**: 검색 결과만으로는 불완전, 실제로 원하는 정보를 얻거나 액션을 수행해야 완료
-3. **로그인/회원가입**: 실제로 로그인/가입이 완료되어야 완료
-4. **구매/주문**: 실제로 구매/주문이 완료되어야 완료
-5. **단순 정보 확인**: 해당 정보가 화면에 표시되면 완료
+**CRITICAL: You MUST analyze the page information below to determine completion status.**
 
-**현재 상황:**
-작업 후 스크린샷: {latest_screenshot_url}
-작업 후 HTML:
-```html
-{latest_html}
-```
+**COMPLETION CRITERIA:**
+**CRITICAL: You must determine if the user's original request has been ACTUALLY COMPLETED.**
 
-위 정보를 바탕으로 사용자의 요청이 **실제로 완료되었는지** 판단하세요.
+- **If the user's request is fully satisfied** → FINISH
+- **If the user's request is NOT fully satisfied** → CONTINUE
 
-- **완료되었다면**: Status: FINISH, WebPlan: []
-- **아직 미완료라면**: Status: CONTINUE, WebPlan에 남은 단계만 포함
+**Current page information:**
+{interactive_elements}
 
-**예시:**
-- "유튜브에서 조재민 피아노 듣고 싶다" → 검색 결과만으로는 불완전, 실제로 영상이 재생되어야 완료
-- "구글에서 날씨 검색" → 날씨 정보가 화면에 표시되면 완료
-- "네이버 로그인" → 실제로 로그인되어야 완료"""},
-            {"role": "user", "content": f"위 작업 결과를 바탕으로, 사용자의 요청 '{original_request}'이(가) 실제로 완료되었는지 판단하고, Status와 WebPlan을 올바르게 응답하세요."}
+**Blackboard information (previous execution records):**
+{blackboard_context}
+
+**MANDATORY ANALYSIS:**
+You MUST examine the page information above and determine if the user's request is completely fulfilled.
+
+**DECISION RULE:**
+- **If user's request is completely fulfilled** → FINISH
+- **If user's request is partially fulfilled or not fulfilled** → CONTINUE
+
+Based on the above information, determine whether the user's request has been **actually completed**.
+
+**CRITICAL: You must respond with EXACTLY one of these two status values:**
+- **If completed**: Status: "FINISH", WebPlan: []
+- **If still incomplete**: Status: "CONTINUE", include remaining steps in WebPlan
+
+**Valid status values ONLY: "FINISH" or "CONTINUE"**
+**Do NOT use "COMPLETED", "DONE", or any other status values.**
+
+**IMPORTANT: If you choose CONTINUE, you MUST explain why in the Comment field.**
+
+**Examples:**
+- "Search for 석인호" → If search results are displayed → FINISH
+- "Search for weather" → If weather info is displayed → FINISH
+- "I want to listen to Jo Jae-min's piano on YouTube" → Just search results → CONTINUE (need video playing)
+- "Login to Naver" → Must actually be logged in → FINISH"""},
+            {"role": "user", "content": f"Based on the above work results, determine whether the user's request '{original_request}' has been actually completed and respond with correct Status and WebPlan. Use ONLY 'FINISH' or 'CONTINUE' as Status value. If you choose CONTINUE, explain why in the Comment field."}
         ]
         # 3. Get LLM's answer and update status/plan accordingly
         try:
             llm_response, _ = self.host_agent.get_response(post_action_prompt, "HOSTAGENT", use_backup_engine=True)
             llm_response_json = self.host_agent.response_to_dict(llm_response)
             status_from_llm = llm_response_json.get("Status", "").upper()
+            comment_from_llm = llm_response_json.get("Comment", "")
+            
             if status_from_llm == "FINISH":
                 utils.print_with_color("작업 후 LLM이 FINISH 상태를 반환했습니다. 세션을 종료합니다.", "yellow")
+                if comment_from_llm:
+                    utils.print_with_color(f"LLM Comment: {comment_from_llm}", "cyan")
                 self.status = self._agent_status_manager.FINISH.value
             elif status_from_llm == "CONTINUE":
                 utils.print_with_color("작업 후 LLM이 CONTINUE 상태를 반환했습니다. 남은 계획을 실행합니다.", "yellow")
+                if comment_from_llm:
+                    utils.print_with_color(f"LLM Comment (CONTINUE 이유): {comment_from_llm}", "red")
                 self.status = self._agent_status_manager.CONTINUE.value
                 self._web_plan = llm_response_json.get("WebPlan", [])
-                # (선택) self._modified_plan = self._web_plan  # If you want to immediately re-enter the loop
+                
+                # Clean up context for new round to prevent context overflow
+                utils.print_with_color("새로운 라운드를 위해 컨텍스트를 정리합니다.", "cyan")
+                try:
+                    # Clear accumulated page info to prevent context overflow
+                    if hasattr(self, '_desktop_screen_url'):
+                        self._desktop_screen_url = None
+                    
+                    # Clear any accumulated HTML/context data
+                    if hasattr(self, 'clickable_elements'):
+                        self.clickable_elements = []
+                    
+                    utils.print_with_color("컨텍스트 정리 완료 - 새로운 라운드 준비됨", "green")
+                    
+                except Exception as cleanup_error:
+                    utils.print_with_color(f"컨텍스트 정리 중 오류: {cleanup_error}", "yellow")
             else:
                 utils.print_with_color(f"작업 후 LLM Status 파싱 실패: {status_from_llm}", "red")
                 # 파싱 실패 시 재요청
                 utils.print_with_color("파싱 실패로 재요청합니다...", "yellow")
                 retry_prompt = [
-                    {"role": "system", "content": f"""이전 응답에서 Status 파싱에 실패했습니다.
-원래 요청: '{original_request}'
-실패한 응답: {llm_response[:500]}...
+                    {"role": "system", "content": f"""Status parsing failed in the previous response.
+Original request: '{original_request}'
+Failed response: {llm_response[:500]}...
 
-다시 한번 명확하게 응답해주세요:
-- **완료되었다면**: Status: FINISH, WebPlan: []
-- **아직 미완료라면**: Status: CONTINUE, WebPlan에 남은 단계만 포함
+**CRITICAL: You MUST analyze the page information below to determine completion status.**
 
-JSON 형식으로만 응답해주세요."""},
-                    {"role": "user", "content": f"사용자의 요청 '{original_request}'이(가) 실제로 완료되었는지 판단하고, Status와 WebPlan을 올바르게 응답하세요."}
+**COMPLETION CRITERIA:**
+**CRITICAL: You must determine if the user's original request has been ACTUALLY COMPLETED.**
+
+- **If the user's request is fully satisfied** → FINISH
+- **If the user's request is NOT fully satisfied** → CONTINUE
+
+**Current page information:**
+{interactive_elements}
+
+**Blackboard information (previous execution records):**
+{blackboard_context}
+
+**MANDATORY ANALYSIS:**
+You MUST examine the page information above and determine if the user's request is completely fulfilled.
+
+**DECISION RULE:**
+- **If user's request is completely fulfilled** → FINISH
+- **If user's request is partially fulfilled or not fulfilled** → CONTINUE
+
+Based on the above information, determine whether the user's request has been **actually completed**.
+
+**CRITICAL: You must respond with EXACTLY one of these two status values:**
+- **If completed**: Status: "FINISH", WebPlan: []
+- **If still incomplete**: Status: "CONTINUE", include remaining steps in WebPlan
+
+**Valid status values ONLY: "FINISH" or "CONTINUE"**
+**Do NOT use "COMPLETED", "DONE", or any other status values.**
+
+**IMPORTANT: If you choose CONTINUE, you MUST explain why in the Comment field.**
+
+**Examples:**
+- "Search for 석인호" → If search results are displayed → FINISH
+- "Search for weather" → If weather info is displayed → FINISH
+- "I want to listen to Jo Jae-min's piano on YouTube" → Just search results → CONTINUE (need video playing)
+- "Login to Naver" → Must actually be logged in → FINISH"""},
+                    {"role": "user", "content": f"Determine whether the user's request '{original_request}' has been actually completed and respond with correct Status and WebPlan. Use ONLY 'FINISH' or 'CONTINUE' as Status value. If you choose CONTINUE, explain why in the Comment field."}
                 ]
                 
                 retry_response, _ = self.host_agent.get_response(retry_prompt, "HOSTAGENT", use_backup_engine=True)
                 retry_response_json = self.host_agent.response_to_dict(retry_response)
                 retry_status = retry_response_json.get("Status", "").upper()
+                retry_comment = retry_response_json.get("Comment", "")
                 
                 if retry_status == "FINISH":
                     utils.print_with_color("재요청 후 LLM이 FINISH 상태를 반환했습니다. 세션을 종료합니다.", "yellow")
+                    if retry_comment:
+                        utils.print_with_color(f"LLM Comment: {retry_comment}", "cyan")
                     self.status = self._agent_status_manager.FINISH.value
                 elif retry_status == "CONTINUE":
                     utils.print_with_color("재요청 후 LLM이 CONTINUE 상태를 반환했습니다. 남은 계획을 실행합니다.", "yellow")
+                    if retry_comment:
+                        utils.print_with_color(f"LLM Comment (CONTINUE 이유): {retry_comment}", "red")
                     self.status = self._agent_status_manager.CONTINUE.value
                     self._web_plan = retry_response_json.get("WebPlan", [])
                 else:
@@ -780,16 +906,42 @@ JSON 형식으로만 응답해주세요."""},
             utils.print_with_color("예외 발생으로 재요청합니다...", "yellow")
             try:
                 retry_prompt = [
-                    {"role": "system", "content": f"""이전 요청에서 예외가 발생했습니다.
-원래 요청: '{original_request}'
-예외: {str(e)}
+                    {"role": "system", "content": f"""An exception occurred in the previous request.
+Original request: '{original_request}'
+Exception: {str(e)}
 
-다시 한번 명확하게 응답해주세요:
-- **완료되었다면**: Status: FINISH, WebPlan: []
-- **아직 미완료라면**: Status: CONTINUE, WebPlan에 남은 단계만 포함
+**CRITICAL: You MUST analyze the page information below to determine completion status.**
 
-JSON 형식으로만 응답해주세요."""},
-                    {"role": "user", "content": f"사용자의 요청 '{original_request}'이(가) 실제로 완료되었는지 판단하고, Status와 WebPlan을 올바르게 응답하세요."}
+**COMPLETION CRITERIA:**
+**CRITICAL: You must determine if the user's original request has been ACTUALLY COMPLETED.**
+
+- **If the user's request is fully satisfied** → FINISH
+- **If the user's request is NOT fully satisfied** → CONTINUE
+
+**Current page information:**
+{interactive_elements}
+
+**Blackboard information (previous execution records):**
+{blackboard_context}
+
+**MANDATORY ANALYSIS:**
+You MUST examine the page information above and determine if the user's request is completely fulfilled.
+
+**DECISION RULE:**
+- **If user's request is completely fulfilled** → FINISH
+- **If user's request is partially fulfilled or not fulfilled** → CONTINUE
+
+Based on the above information, determine whether the user's request has been **actually completed**.
+
+**CRITICAL: You must respond with EXACTLY one of these two status values:**
+- **If completed**: Status: "FINISH", WebPlan: []
+- **If still incomplete**: Status: "CONTINUE", include remaining steps in WebPlan
+
+**Valid status values ONLY: "FINISH" or "CONTINUE"**
+**Do NOT use "COMPLETED", "DONE", or any other status values.**
+
+Please respond in JSON format only."""},
+                    {"role": "user", "content": f"Determine whether the user's request '{original_request}' has been actually completed and respond with correct Status and WebPlan. Use ONLY 'FINISH' or 'CONTINUE' as Status value. If you choose CONTINUE, explain why in the Comment field."}
                 ]
                 
                 retry_response, _ = self.host_agent.get_response(retry_prompt, "HOSTAGENT", use_backup_engine=True)
@@ -1120,8 +1272,8 @@ JSON 형식으로만 응답해주세요."""},
             # Accumulate information
             accumulated_info = {
                 'current_page': {
-                    'title': page_title,
-                    'url': current_url,
+                'title': page_title,
+                'url': current_url,
                     'screenshot_url': screenshot_url,
                     'search_summary': search_summary,
                     'timestamp': time.time()
@@ -1137,8 +1289,8 @@ JSON 형식으로만 응답해주세요."""},
             utils.print_with_color(f"페이지 정보 수집 실패: {e}", "red")
             return {
                 'current_page': {
-                    'title': 'Unknown',
-                    'url': 'Unknown',
+                'title': 'Unknown',
+                'url': 'Unknown',
                     'screenshot_url': '',
                     'search_summary': {'summary': '분석 실패', 'extracted_info': []},
                     'timestamp': time.time()
@@ -1164,7 +1316,7 @@ JSON 형식으로만 응답해주세요."""},
             
             if not is_search_page:
                 return {
-                    'summary': '검색 결과 페이지가 아님',
+                    'summary': 'Not a search result page',
                     'extracted_info': [],
                     'is_search_page': False
                 }
@@ -1173,30 +1325,29 @@ JSON 형식으로만 응답해주세요."""},
             page_text = ""
             try:
                 page_text = self._selenium_receiver.driver.find_element("tag name", "body").text
-                # Limit text length to avoid too large data
-                page_text = page_text[:3000] if len(page_text) > 3000 else page_text
+                utils.print_with_color(f"페이지 텍스트 길이: {len(page_text)} 문자", "cyan")
             except Exception as e:
                 utils.print_with_color(f"페이지 텍스트 가져오기 실패: {e}", "yellow")
                 page_text = ""
             
             # Extract search results using LLM
-            prompt = f"""현재 페이지에서 검색 결과를 요약해주세요:
+            prompt = f"""Please summarize the search results from the current page:
 
 URL: {current_url}
-제목: {page_title}
-페이지 텍스트: {page_text[:1000]}...
+Title: {page_title}
+Page text: {page_text[:1000]}...
 
-이 페이지에서 찾을 수 있는 주요 정보나 검색 결과를 요약해주세요.
-예를 들어:
-- 영화 제목이 있다면 정확한 제목 추출
-- 상영시간 정보가 있다면 추출
-- 기타 관련 정보 추출
+Please summarize the main information or search results that can be found on this page.
+For example:
+- If there are movie titles, extract the exact title
+- If there are showtime information, extract it
+- Extract other relevant information
 
-응답 형식:
-- 요약: "페이지 요약"
-- 추출된 정보: ["정보1", "정보2", ...]
+Response format:
+- Summary: "Page summary"
+- Extracted information: ["Info1", "Info2", ...]
 
-간단한 텍스트로만 응답해주세요."""
+Please respond in simple text only."""
 
             llm_response, _ = self.host_agent.get_response(
                 [{"role": "user", "content": prompt}], "HOSTAGENT", use_backup_engine=True
@@ -1206,16 +1357,16 @@ URL: {current_url}
             response_text = llm_response.strip()
             
             # Extract summary and information
-            summary = "검색 결과 분석 완료"
+            summary = "Search result analysis completed"
             extracted_info = []
             
             # Try to extract information from response
-            if "요약:" in response_text:
-                summary_part = response_text.split("요약:")[1].split("추출된 정보:")[0].strip()
+            if "Summary:" in response_text:
+                summary_part = response_text.split("Summary:")[1].split("Extracted information:")[0].strip()
                 summary = summary_part
                 
-            if "추출된 정보:" in response_text:
-                info_part = response_text.split("추출된 정보:")[1].strip()
+            if "Extracted information:" in response_text:
+                info_part = response_text.split("Extracted information:")[1].strip()
                 # Simple extraction of list items
                 if "[" in info_part and "]" in info_part:
                     info_content = info_part[info_part.find("[")+1:info_part.find("]")]
@@ -1226,14 +1377,13 @@ URL: {current_url}
                 'extracted_info': extracted_info,
                 'is_search_page': True,
                 'page_title': page_title,
-                'url': current_url,
-                'raw_response': llm_response[:300]  # Store first 300 chars for debugging
+                'url': current_url
             }
             
         except Exception as e:
-            utils.print_with_color(f"검색 결과 요약 실패: {e}", "red")
+            utils.print_with_color(f"Search result summary failed: {e}", "red")
             return {
-                'summary': '검색 결과 요약 실패',
+                'summary': 'Search result summary failed',
                 'extracted_info': [],
                 'is_search_page': False,
                 'page_title': page_title,
@@ -1249,7 +1399,7 @@ URL: {current_url}
         :param page_info: Current page information.
         """
         try:
-            utils.print_with_color("실행 결과를 바탕으로 계획 수정을 요청합니다...", "yellow")
+            utils.print_with_color("Requesting plan modification based on execution results...", "yellow")
             
             # Create feedback message for HostAgent
             feedback_message = {
@@ -1264,55 +1414,128 @@ URL: {current_url}
             # Store in blackboard for HostAgent to access
             if self.host_agent and self.host_agent.blackboard:
                 self.host_agent.blackboard.add_trajectories(feedback_message)
-                utils.print_with_color("실행 결과를 blackboard에 저장했습니다.", "cyan")
+                utils.print_with_color("Execution results stored in blackboard.", "cyan")
             
             # Create a new prompt for plan modification
             modification_prompt = self._create_modification_prompt(failed_step, page_info)
             
             # Get new plan from LLM
-            utils.print_with_color("LLM에게 새로운 계획을 요청합니다...", "cyan")
+            utils.print_with_color("Requesting new plan from LLM...", "cyan")
             new_response, cost = self.host_agent.get_response(
                 modification_prompt, "HOSTAGENT", use_backup_engine=True
             )
             
+            # Debug: Print raw response
+            utils.print_with_color(f"Raw LLM response: {new_response[:1000]}...", "yellow")
+            
             # Parse the new response with error handling
-            try:
-                new_response_json = self.host_agent.response_to_dict(new_response)
-                new_web_plan = new_response_json.get("WebPlan", [])
-                
-                if new_web_plan and isinstance(new_web_plan, list) and len(new_web_plan) > 0:
-                    utils.print_with_color("새로운 웹 자동화 계획이 생성되었습니다:", "green")
+            max_retries = 5
+            retry_count = 0
+            success = False
+            
+            # Get original request for retry prompts
+            original_request = self.context.get(ContextNames.REQUEST)
+            
+            while retry_count < max_retries and not success:
+                parse_error = None  # Initialize parse_error variable
+                try:
+                    if retry_count == 0:
+                        # First attempt
+                        response_to_parse = new_response
+                    else:
+                        # Retry attempts
+                        utils.print_with_color(f"Retry attempt {retry_count} with correct format...", "yellow")
+                        retry_prompt = [
+                            {"role": "system", "content": f"""Your previous response failed to parse because it used incorrect format.
+
+**PARSING ERROR:** {parse_error}
+
+**PREVIOUS FAILED RESPONSE:**
+{response_to_parse[:1000]}...
+
+**FAILED EXECUTION DETAILS:**
+**Failed Function:** {failed_step.get('function', '')}
+**Failed Arguments:** {failed_step.get('args', {})}
+**Execution Error:** {failed_step.get('error', '')}
+
+**PROBLEM:** You used incorrect function names and argument formats.
+
+**CORRECT FORMAT REQUIRED:**
+You must respond in EXACT JSON format with these fields:
+- "Observation": Brief analysis of current situation
+- "Thought": Your reasoning process
+- "WebPlan": Array of function calls in this format:
+  [{{"function": "function_name", "args": {{"arg1": "value1", "arg2": "value2"}}}}]
+- "Comment": Brief explanation
+
+**CORRECT FUNCTION NAMES AND ARGUMENTS:**
+- `navigate_to_url`: {{"url": "https://example.com"}}
+- `input_text`: {{"text": "text to input", "selector": "#search-field", "press_enter": true}}
+- `click_element`: {{"text": "element text", "element_type": "button"}}
+
+**EXAMPLE OF CORRECT FORMAT:**
+```json
+{{
+  "Observation": "Current page shows search results",
+  "Thought": "Need to click on first video result",
+  "WebPlan": [
+    {{"function": "input_text", "args": {{"text": "조재민 피아노", "selector": "#search-field", "press_enter": true}}}},
+    {{"function": "click_element", "args": {{"text": "Video Title", "element_type": "link"}}}}
+  ],
+  "Comment": "Clicking first video to play"
+}}
+```
+
+**CRITICAL:** Convert your previous response to this exact format. Use ONLY the correct function names and argument formats above."""},
+                            {"role": "user", "content": f"Create a new WebPlan for the failed step. Function: {failed_step.get('function', '')}, Arguments: {failed_step.get('args', {})}, Error: {failed_step.get('error', '')}. Original request: {original_request}. Convert your previous response to the correct format."}
+                        ]
+                        
+                        retry_response, _ = self.host_agent.get_response(retry_prompt, "HOSTAGENT", use_backup_engine=True)
+                        utils.print_with_color(f"Retry response: {retry_response[:500]}...", "yellow")
+                        response_to_parse = retry_response
                     
-                    # Print full LLM response including Observation, Thought, etc.
-                    observation = new_response_json.get("Observation", "")
-                    thought = new_response_json.get("Thought", "")
-                    comment = new_response_json.get("Comment", "")
+                    # Try to parse the response
+                    response_json = self.host_agent.response_to_dict(response_to_parse)
+                    web_plan = response_json.get("WebPlan", [])
                     
-                    if observation:
-                        utils.print_with_color(f"Observation: {observation}", "blue")
-                    if thought:
-                        utils.print_with_color(f"Thought: {thought}", "magenta")
-                    if comment:
-                        utils.print_with_color(f"Comment: {comment}", "yellow")
-                    
-                    utils.print_with_color(f"새 계획: {new_web_plan}", "cyan")
-                    
-                    # Store the modified plan
-                    self._modified_plan = new_web_plan
-                    
-                    # Continue with the new plan
-                    utils.print_with_color("새로운 계획으로 계속 실행합니다...", "green")
-                    self._web_plan = new_web_plan
-                    
-                else:
-                    utils.print_with_color("새로운 계획을 생성할 수 없습니다.", "red")
-                    
-            except Exception as parse_error:
-                utils.print_with_color(f"LLM 응답 파싱 실패: {parse_error}", "red")
-                utils.print_with_color(f"원본 응답: {new_response[:500]}...", "yellow")
+                    if web_plan and isinstance(web_plan, list) and len(web_plan) > 0:
+                        utils.print_with_color(f"Successfully generated plan on attempt {retry_count + 1}!", "green")
+                        
+                        # Print full LLM response including Observation, Thought, etc.
+                        observation = response_json.get("Observation", "")
+                        thought = response_json.get("Thought", "")
+                        comment = response_json.get("Comment", "")
+                        
+                        if observation:
+                            utils.print_with_color(f"Observation: {observation}", "blue")
+                        if thought:
+                            utils.print_with_color(f"Thought: {thought}", "magenta")
+                        if comment:
+                            utils.print_with_color(f"Comment: {comment}", "yellow")
+                        
+                        utils.print_with_color(f"New plan: {web_plan}", "cyan")
+                        
+                        # Store the modified plan and use it
+                        self._modified_plan = web_plan
+                        self._web_plan = web_plan
+                        success = True
+                    else:
+                        utils.print_with_color(f"Attempt {retry_count + 1} failed - WebPlan invalid", "red")
+                        utils.print_with_color(f"WebPlan value: {web_plan}", "red")
+                        utils.print_with_color(f"WebPlan type: {type(web_plan)}", "red")
+                        retry_count += 1
+                        
+                except Exception as parse_error:
+                    utils.print_with_color(f"Attempt {retry_count + 1} parsing failed: {parse_error}", "red")
+                    if retry_count == 0:
+                        utils.print_with_color(f"Original response: {new_response[:500]}...", "yellow")
+                    retry_count += 1
+            
+            if not success:
+                utils.print_with_color(f"Failed to generate plan after {max_retries} attempts.", "red")
                 
         except Exception as e:
-            utils.print_with_color(f"계획 수정 요청 중 오류: {e}", "red")
+            utils.print_with_color(f"Error during plan modification request: {e}", "red")
 
     def _summarize_execution_results(self, execution_results: list) -> str:
         """
@@ -1321,17 +1544,21 @@ URL: {current_url}
         :return: Summary string (immediate previous step only).
         """
         if not execution_results:
-            return "(이전 실행 결과 없음)"
+            return "(No previous execution results)"
         
-        # 바로 이전 단계만 가져오기
-        last_step = execution_results[-1]
-        func = last_step.get('function', '')
-        args = last_step.get('args', {})
-        
-        if last_step.get('success'):
-            return f"이전 단계 성공: {func}({args})"
+        # 모든 실행 결과를 상세히 요약
+        summary_parts = []
+        for i, step in enumerate(execution_results):
+            func = step.get('function', '')
+            success = step.get('success', False)
+            error = step.get('error', '')
+            
+            if success:
+                summary_parts.append(f"Step {i+1}: {func} - SUCCESS")
         else:
-            return f"이전 단계 실패: {func}({args}) - {last_step.get('error', '')}"
+                summary_parts.append(f"Step {i+1}: {func} - FAILED: {error}")
+        
+        return "\n".join(summary_parts)
 
     def _create_modification_prompt(self, failed_step: Dict, page_info: Dict[str, Any], execution_results: list = None) -> List[Dict[str, Any]]:
         """
@@ -1347,9 +1574,10 @@ URL: {current_url}
         html_source = ""
         try:
             if self._selenium_receiver and self._selenium_receiver.driver:
-                html_source = self._selenium_receiver.get_page_source()
+                # Use interactive elements instead of full HTML source
+                html_source = self._extract_interactive_elements()
         except Exception as e:
-            html_source = f"Failed to get HTML source: {e}"
+            html_source = f"Failed to get interactive elements: {e}"
         
         # Capture current screenshot for better analysis
         screenshot_url = ""
@@ -1361,99 +1589,88 @@ URL: {current_url}
             screenshot_url = f"Failed to capture screenshot: {e}"
         
         # Get blackboard information for context
-        blackboard_context = ""
-        try:
-            if self.host_agent and self.host_agent.blackboard and not self.host_agent.blackboard.is_empty():
-                blackboard_prompt = self.host_agent.blackboard.blackboard_to_prompt()
-                # Convert blackboard prompt to string for inclusion in system message
-                blackboard_context = "\n".join([str(item) for item in blackboard_prompt])
-            else:
-                blackboard_context = "이전 실행 기록이 없습니다."
-        except Exception as e:
-            blackboard_context = f"블랙보드 정보 가져오기 실패: {e}"
+        blackboard_context = "Blackboard information removed to reduce context size."
         
         # Summarize execution results
         execution_summary = self._summarize_execution_results(execution_results)
         
-        system_message = """당신은 웹 자동화 전문가입니다. 
-실패한 웹 자동화 단계를 분석하고, 현재 페이지의 HTML 구조와 클릭 가능한 요소들을 바탕으로 새로운 계획을 수립해야 합니다.
+        system_message = """You are a web automation expert. 
+You need to analyze failed web automation steps and create new plans based on the current page's HTML structure and clickable elements.
 
-**중요한 원칙:**
-웹 페이지의 어떤 요소를 클릭하는 과정이 필요할 때는 
-1. HTML을 자세히 분석하여 실제로 존재하는 요소의 정확한 속성을 찾으세요
-2. 가능하면 CSS 선택자나 XPath를 사용하여 정확한 요소를 지정하세요
-3. 텍스트 기반 검색보다는 id, class, name 등의 속성을 우선 사용하세요
+**Important principles:**
+When you need to click an element on a web page:
+1. Analyze the HTML in detail to find the exact attributes of elements that actually exist
+2. Use CSS selectors or XPath when possible to specify elements accurately
+3. Prioritize id, class, name attributes over text-based search
 
-검색의 경우 Enter 키 사용을 우선 고려하세요
+For searches, prioritize using Enter key
 
-계획을 수정할 때는 html source, 스크린샷, 블랙보드 정보 등을 기반으로 철저히 실패 원인을 분석하세요.
-스크린샷을 통해 현재 화면에 어떤 요소들이 보이는지, 어떤 상태인지 파악하세요.
-블랙보드의 이전 실행 기록을 참고하여 반복되는 실패 패턴을 피하고 더 나은 계획을 세우세요.
-당신은 계획을 일부 수정해야할 수도 있고, 완전히 새로운 계획을 수립해야 할 수도 있습니다.
-만약 현재 페이지에서 사용자의 요구를 이룰 수 없다고 판단된다면 당신은
-당신이 원하는 키워드를 네이버에 검색하여 필요한 정보를 얻는 과정을 계획에 포함할 수 있습니다.
-필요한 정보를 얻었다고 판단이 된다면 반드시 사용자의 요청을 완수하기 위한 계획을 세우세요.
+When modifying plans, thoroughly analyze the failure cause based on html source, screenshots, blackboard information, etc.
+Use screenshots to understand what elements are visible on the current screen and what state it's in.
+Refer to previous execution records in the blackboard to avoid repeating failure patterns and create better plans.
+You may need to partially modify the plan or create a completely new plan.
+If you determine that the user's needs cannot be met on the current page, you can
+include a process to search for the information you want on Naver to obtain necessary information.
+If you determine that necessary information has been obtained, you must create a plan to complete the user's request.
 
-**실패한 단계 분석:**
-- 함수: {function}
-- 인수: {args}
-- 오류: {error}
+**Failed step analysis:**
+- Function: {function}
+- Arguments: {args}
+- Error: {error}
 
-**현재 페이지 정보:**
-- 제목: {current_title}
+**Current page information:**
+- Title: {current_title}
 - URL: {current_url}
-- 스크린샷: {screenshot_url}
-- 검색 결과 요약: {search_summary}
+- Screenshot: {screenshot_url}
+- Search result summary: {search_summary}
 
-**누적된 정보:**
-- 총 방문한 페이지 수: {total_pages}
-- 모든 검색 결과 요약: {all_search_summaries}
-- 이전 페이지들: {previous_pages}
+**Accumulated information:**
+- Total pages visited: {total_pages}
+- All search result summaries: {all_search_summaries}
+- Previous pages: {previous_pages}
 
-**블랙보드 정보 (이전 실행 기록):**
+**Blackboard information (previous execution records):**
 {blackboard_context}
 
-**현재 페이지의 HTML 소스:**
-```html
+**Current page interactive elements:**
 {html_source}
-```
 
-**원래 요청:** {request}
+**Original request:** {request}
 
-**이전 단계 실행 요약:**
+**Previous step execution summary:**
 {execution_summary}
 
-**중요: 검색 결과 요약 활용**
-이전에 수집한 모든 검색 결과 요약을 확인하고 활용하세요. 
-예를 들어 네이버에서 "코난 극장판"을 검색한 결과가 있다면, 그 결과에서 정확한 영화 제목을 추출하여 메가박스 검색에 사용하세요.
+**Important: Utilize search result summaries**
+Check and utilize all previously collected search result summaries.
+For example, if you searched for "Conan movie" on Naver, extract the exact movie title from the results and use it for Megabox search.
 
-위 정보를 바탕으로 실패한 단계를 대체할 수 있는 새로운 WebPlan을 생성하세요.
+Based on the above information, create a new WebPlan that can replace the failed step.
 
-**WebPlan 작성 가이드라인:**
-1. **검색창 입력**: `input_text` 함수에서 `press_enter: true` 사용을 우선 고려
-2. **정확한 선택자**: 가능하면 CSS 선택자(`#id`, `.class`) 또는 XPath 사용
-3. **요소 타입**: 실제 HTML 태그에 맞는 element_type 지정
-4. **중복 제거**: 이미 완료된 단계는 포함하지 않음
-5. **정보 수집**: 필요한 정보가 부족하면 반드시 네이버 검색 단계 포함
-   - `navigate_to_url`로 검색 엔진 이동
-   - `input_text`로 관련 키워드 검색
-   - 검색 결과에서 필요한 정보 확인 후 원래 사이트로 복귀
+**WebPlan writing guidelines:**
+1. **Search input**: Prioritize using `press_enter: true` in `input_text` function
+2. **Accurate selectors**: Use CSS selectors (`#id`, `.class`) or XPath when possible
+3. **Element types**: Specify element_type that matches actual HTML tags
+4. **Remove duplicates**: Don't include steps that have already been completed
+5. **Information gathering**: If necessary information is lacking, definitely include Naver search steps
+   - Use `navigate_to_url` to move to search engine
+   - Use `input_text` to search for related keywords
+   - Check search results for necessary information and return to original site
 
-**지원하는 함수들:**
-- `navigate_to_url`: URL로 이동
-- `input_text`: 텍스트 입력 (press_enter 옵션 포함)
-- `click_element`: 요소 클릭 (정확한 selector 사용 권장)
+**Supported functions:**
+- `navigate_to_url`: Navigate to URL
+- `input_text`: Input text (includes press_enter option)
+- `click_element`: Click element (recommend using accurate selector)
 
-**응답 형식:**
+**Response format:**
 ```json
 {{
-    "Observation": "현재 상황 분석 (HTML 구조 기반)",
-    "Thought": "새로운 계획 수립 과정",
+    "Observation": "Current situation analysis (HTML structure based)",
+    "Thought": "New plan creation process",
     "WebPlan": [
-        {{"function": "함수명", "args": {{"인수": "값"}}}},
+        {{"function": "function_name", "args": {{"argument": "value"}}}},
         ...
     ],
-    "Comment": "계획 수정 이유"
+    "Comment": "Reason for plan modification"
 }}
 ```""".format(
             function=failed_step.get('function', ''),
@@ -1474,5 +1691,137 @@ URL: {current_url}
         
         return [
             {"role": "system", "content": system_message},
-            {"role": "user", "content": f"실패한 단계를 수정해서 원래 요청 '{original_request}'을 완수할 수 있는 새로운 계획을 만들어주세요. 단순히 HTML 요소를 찾아서 클릭하거나 입력하는 것을 넘어서, 사용자의 요청을 완수하기 위해 필요한 추가 정보가 있다면 그것을 수집하는 단계도 포함하세요. 예를 들어 영화 제목이 애매하다면 정확한 제목을 검색하는 단계, 상영시간이 필요하다면 상영시간을 찾는 단계 등을 포함하여 완전한 계획을 세우세요. **중요**: 정보 수집이 필요하다면 반드시 navigate_to_url로 네이버에 이동하여 검색하는 단계를 WebPlan에 포함하세요."}
+            {"role": "user", "content": f"Modify the failed step to create a new plan that can complete the original request '{original_request}'. Go beyond simply finding HTML elements to click or input, and include steps to collect additional information if needed to complete the user's request. For example, if a movie title is ambiguous, include steps to search for the exact title, or if showtime information is needed, include steps to find showtimes, etc., to create a complete plan. **Important**: If information gathering is needed, definitely include steps to navigate to Naver using `navigate_to_url` and search in the WebPlan."}
         ]
+
+    def _extract_interactive_elements(self) -> str:
+        """
+        Extract clickable and input elements from the current page.
+        :return: String containing interactive elements information.
+        """
+        try:
+            if not self._selenium_receiver or not self._selenium_receiver.driver:
+                return "Selenium driver not available"
+            
+            elements_info = []
+            
+            # Get clickable elements
+            try:
+                clickable_elements = self._selenium_receiver.get_all_clickable_elements()
+                if clickable_elements:
+                    elements_info.append("**Clickable Elements:**")
+                    for i, elem in enumerate(clickable_elements):
+                        elements_info.append(f"  {i+1}. {elem.get('text', 'No text')} (tag: {elem.get('tag_name', 'unknown')})")
+            except Exception as e:
+                elements_info.append(f"Failed to get clickable elements: {e}")
+            
+            # Get input elements
+            try:
+                input_elements = self._selenium_receiver.driver.find_elements("tag name", "input")
+                if input_elements:
+                    elements_info.append("\n**Input Elements:**")
+                    for i, elem in enumerate(input_elements):
+                        input_type = elem.get_attribute("type") or "text"
+                        input_id = elem.get_attribute("id") or "no-id"
+                        input_name = elem.get_attribute("name") or "no-name"
+                        input_placeholder = elem.get_attribute("placeholder") or "no-placeholder"
+                        elements_info.append(f"  {i+1}. type={input_type}, id={input_id}, name={input_name}, placeholder={input_placeholder}")
+            except Exception as e:
+                elements_info.append(f"Failed to get input elements: {e}")
+            
+            # Get current page title and URL
+            try:
+                title = self._selenium_receiver.get_page_title()
+                url = self._selenium_receiver.driver.current_url
+                elements_info.insert(0, f"**Current Page:** {title}")
+                elements_info.insert(1, f"**URL:** {url}")
+            except Exception as e:
+                elements_info.insert(0, f"Failed to get page info: {e}")
+            
+            # Get page text content (limited to reduce context)
+            try:
+                page_text = self._selenium_receiver.driver.find_element("tag name", "body").text
+                utils.print_with_color(f"인터랙티브 요소용 페이지 텍스트 길이: {len(page_text)} 문자", "cyan")
+                elements_info.append(f"\n**Page Text:**\n{page_text}")
+            except Exception as e:
+                elements_info.append(f"\n**Page Text:** Failed to get page text: {e}")
+            
+            return "\n".join(elements_info)
+            
+        except Exception as e:
+            return f"Failed to extract interactive elements: {e}"
+
+    def _check_if_request_completed(self) -> bool:
+        """
+        Check if the user's request has already been completed.
+        :return: True if the request is completed, False otherwise.
+        """
+        # Implement your logic to check if the request has already been completed
+        # This could involve checking the blackboard, previous actions, etc.
+        return False
+
+    def _check_completion_status(self) -> bool:
+        """
+        Check if the user's request has already been completed using existing completion logic.
+        :return: True if the request is completed, False otherwise.
+        """
+        try:
+            # Get current page information
+            current_page_info = self._get_current_page_info()
+            
+            # Get interactive elements information
+            interactive_elements = self._extract_interactive_elements()
+            
+            # Get original request
+            original_request = self.context.get(ContextNames.REQUEST)
+            
+            # Use the same completion prompt logic as in execute_action
+            completion_prompt = [
+                {"role": "system", "content": f"""You are an expert in determining whether a user's request has been actually completed.
+
+Original user request: '{original_request}'
+
+**CRITICAL: You MUST analyze the page information below to determine completion status.**
+
+**COMPLETION CRITERIA:**
+**CRITICAL: You must determine if the user's original request has been ACTUALLY COMPLETED.**
+
+- **If the user's request is fully satisfied** → FINISH
+- **If the user's request is NOT fully satisfied** → CONTINUE
+
+**Current page information:**
+{interactive_elements}
+
+**MANDATORY ANALYSIS:**
+You MUST examine the page information above and determine if the user's request is completely fulfilled.
+
+**DECISION RULE:**
+- **If user's request is completely fulfilled** → FINISH
+- **If user's request is partially fulfilled or not fulfilled** → CONTINUE
+
+Based on the above information, determine whether the user's request has been **actually completed**.
+
+**CRITICAL: You must respond with EXACTLY one of these two status values:**
+- **If completed**: Status: "FINISH", WebPlan: []
+- **If still incomplete**: Status: "CONTINUE", include remaining steps in WebPlan
+
+**Valid status values ONLY: "FINISH" or "CONTINUE"**
+**Do NOT use "COMPLETED", "DONE", or any other status values.**"""},
+                {"role": "user", "content": f"Determine whether the user's request '{original_request}' has been actually completed and respond with correct Status. Use ONLY 'FINISH' or 'CONTINUE' as Status value."}
+            ]
+            
+            # Get LLM's completion status
+            llm_response, _ = self.host_agent.get_response(completion_prompt, "HOSTAGENT", use_backup_engine=True)
+            llm_response_json = self.host_agent.response_to_dict(llm_response)
+            status_from_llm = llm_response_json.get("Status", "").upper()
+            
+            if status_from_llm == "FINISH":
+                utils.print_with_color("완수 상태 확인: 사용자 요청이 완료되었습니다.", "green")
+                return True
+            else:
+                utils.print_with_color("완수 상태 확인: 사용자 요청이 아직 완료되지 않았습니다.", "yellow")
+                return False
+                
+        except Exception as e:
+            utils.print_with_color(f"완수 상태 확인 중 오류: {e}", "red")
+            return False

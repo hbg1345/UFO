@@ -201,26 +201,41 @@ class Blackboard:
         for qa in qa_list:
             self.add_questions(qa)
 
-    def texts_to_prompt(self, memory: Memory, prefix: str) -> List[str]:
+    def texts_to_prompt(self, memory: Memory, prefix: str, max_items: int = 2) -> List[str]:
         """
-        Convert the data to a prompt.
+        Convert the data to a prompt with limited items to reduce context usage.
+        :param memory: The memory to convert.
+        :param prefix: The prefix for the prompt.
+        :param max_items: Maximum number of items to include (default: 2).
         :return: The prompt.
         """
+        # Limit the number of items to reduce context usage
+        if len(memory.list_content) > max_items:
+            recent_content = memory.list_content[-max_items:]
+        else:
+            recent_content = memory.list_content
 
         user_content = [
-            {"type": "text", "text": f"{prefix}\n {json.dumps(memory.list_content)}"}
+            {"type": "text", "text": f"{prefix}\n {json.dumps(recent_content)}"}
         ]
 
         return user_content
 
-    def screenshots_to_prompt(self) -> List[str]:
+    def screenshots_to_prompt(self, max_screenshots: int = 2) -> List[str]:
         """
-        Convert the images to a prompt.
+        Convert the images to a prompt with limited screenshots to reduce context usage.
+        :param max_screenshots: Maximum number of screenshots to include (default: 2).
         :return: The prompt.
         """
-
         user_content = []
-        for screenshot_dict in self.screenshots.list_content:
+        
+        # Limit the number of screenshots to reduce context usage
+        if len(self.screenshots.list_content) > max_screenshots:
+            recent_screenshots = self.screenshots.list_content[-max_screenshots:]
+        else:
+            recent_screenshots = self.screenshots.list_content
+            
+        for screenshot_dict in recent_screenshots:
             user_content.append(
                 {
                     "type": "text",
@@ -317,6 +332,30 @@ class Blackboard:
         self.requests.clear()
         self.trajectories.clear()
         self.screenshots.clear()
+
+    def cleanup_old_data(self, keep_recent_trajectories: int = 2, keep_recent_screenshots: int = 2) -> None:
+        """
+        Clean up old data to reduce memory usage and context size.
+        :param keep_recent_trajectories: Number of recent trajectories to keep (default: 2).
+        :param keep_recent_screenshots: Number of recent screenshots to keep (default: 2).
+        """
+        # Clean up old trajectories
+        if len(self.trajectories.list_content) > keep_recent_trajectories:
+            recent_trajectories = self.trajectories.list_content[-keep_recent_trajectories:]
+            self.trajectories.from_list_of_dicts(recent_trajectories)
+            print(f"Cleaned up trajectories: kept {keep_recent_trajectories} recent items")
+        
+        # Clean up old screenshots
+        if len(self.screenshots.list_content) > keep_recent_screenshots:
+            recent_screenshots = self.screenshots.list_content[-keep_recent_screenshots:]
+            self.screenshots.from_list_of_dicts(recent_screenshots)
+            print(f"Cleaned up screenshots: kept {keep_recent_screenshots} recent items")
+        
+        # Clean up old requests (keep only recent 2)
+        if len(self.requests.list_content) > 2:
+            recent_requests = self.requests.list_content[-2:]
+            self.requests.from_list_of_dicts(recent_requests)
+            print("Cleaned up requests: kept 2 recent items")
 
     @staticmethod
     def read_json_file(file_path: str, last_k=-1) -> Dict[str, str]:
