@@ -20,6 +20,7 @@ from ufo.agents.processors.actions import (
 from ufo.agents.processors.basic import BaseProcessor
 from ufo.config.config import Config
 from ufo.module.context import Context, ContextNames
+from ufo.rag.web_search import BingSearchWeb
 
 configs = Config.get_instance().config_data
 
@@ -560,6 +561,11 @@ class HostAgentProcessor(BaseProcessor):
                                 if "not found" in result or "not clickable" in result or "Failed" in result:
                                     utils.print_with_color(f"클릭 실패: {result}", "red")
                                     
+                                    # Update step_result with failure information
+                                    step_result['success'] = False
+                                    step_result['error'] = result
+                                    execution_results.append(step_result)
+                                    
                                     # Get current page information for plan modification
                                     current_page_info = self._get_current_page_info()
                                     
@@ -574,7 +580,7 @@ class HostAgentProcessor(BaseProcessor):
                                     }
                                     
                                     # Send feedback to HostAgent for plan modification
-                                    self._request_plan_modification([], failed_step, current_page_info)
+                                    self._request_plan_modification(execution_results, failed_step, current_page_info)
                                     break  # Stop execution and wait for new plan
                                 
                             elif function == "input_text":
@@ -590,6 +596,11 @@ class HostAgentProcessor(BaseProcessor):
                                 if "not found" in result or "failed" in result or "Failed" in result:
                                     utils.print_with_color(f"수정된 계획의 텍스트 입력 실패: {result}", "red")
                                     
+                                    # Update step_result with failure information
+                                    step_result['success'] = False
+                                    step_result['error'] = result
+                                    execution_results.append(step_result)
+                                    
                                     # Get current page information for plan modification
                                     current_page_info = self._get_current_page_info()
                                     
@@ -604,7 +615,7 @@ class HostAgentProcessor(BaseProcessor):
                                     }
                                     
                                     # Send feedback to HostAgent for plan modification
-                                    self._request_plan_modification([], failed_step, current_page_info)
+                                    self._request_plan_modification(execution_results, failed_step, current_page_info)
                                     break  # Stop execution and wait for new plan
                                 
                             elif function == "get_page_source":
@@ -620,8 +631,18 @@ class HostAgentProcessor(BaseProcessor):
                             import time
                             time.sleep(1)
                             
+                            # Add successful step result to execution_results
+                            if step_result['success']:
+                                execution_results.append(step_result)
+                                utils.print_with_color(f"단계 {i+1} 성공: {function} - execution_results에 추가됨", "green")
+                            
                         except Exception as e:
                             utils.print_with_color(f"수정된 단계 {i+1} 실행 중 오류: {e}", "red")
+                            
+                            # Update step_result with exception information
+                            step_result['success'] = False
+                            step_result['error'] = str(e)
+                            execution_results.append(step_result)
                             
                             # Get current page information for plan modification
                             current_page_info = self._get_current_page_info()
@@ -637,7 +658,7 @@ class HostAgentProcessor(BaseProcessor):
                             }
                             
                             # Send feedback to HostAgent for plan modification
-                            self._request_plan_modification([], failed_step, current_page_info)
+                            self._request_plan_modification(execution_results, failed_step, current_page_info)
                             break  # Stop execution and wait for new plan
                 
                 # Check if a new modified plan was generated
@@ -721,8 +742,78 @@ class HostAgentProcessor(BaseProcessor):
                 # (선택) self._modified_plan = self._web_plan  # If you want to immediately re-enter the loop
             else:
                 utils.print_with_color(f"작업 후 LLM Status 파싱 실패: {status_from_llm}", "red")
+                # 파싱 실패 시 재요청
+                utils.print_with_color("파싱 실패로 재요청합니다...", "yellow")
+                retry_prompt = [
+                    {"role": "system", "content": f"""이전 응답에서 Status 파싱에 실패했습니다.
+원래 요청: '{original_request}'
+실패한 응답: {llm_response[:500]}...
+
+다시 한번 명확하게 응답해주세요:
+- **완료되었다면**: Status: FINISH, WebPlan: []
+- **아직 미완료라면**: Status: CONTINUE, WebPlan에 남은 단계만 포함
+
+JSON 형식으로만 응답해주세요."""},
+                    {"role": "user", "content": f"사용자의 요청 '{original_request}'이(가) 실제로 완료되었는지 판단하고, Status와 WebPlan을 올바르게 응답하세요."}
+                ]
+                
+                retry_response, _ = self.host_agent.get_response(retry_prompt, "HOSTAGENT", use_backup_engine=True)
+                retry_response_json = self.host_agent.response_to_dict(retry_response)
+                retry_status = retry_response_json.get("Status", "").upper()
+                
+                if retry_status == "FINISH":
+                    utils.print_with_color("재요청 후 LLM이 FINISH 상태를 반환했습니다. 세션을 종료합니다.", "yellow")
+                    self.status = self._agent_status_manager.FINISH.value
+                elif retry_status == "CONTINUE":
+                    utils.print_with_color("재요청 후 LLM이 CONTINUE 상태를 반환했습니다. 남은 계획을 실행합니다.", "yellow")
+                    self.status = self._agent_status_manager.CONTINUE.value
+                    self._web_plan = retry_response_json.get("WebPlan", [])
+                else:
+                    utils.print_with_color(f"재요청 후에도 Status 파싱 실패: {retry_status}", "red")
+                    # 최종 fallback: 기본값으로 설정
+                    self.status = self._agent_status_manager.FINISH.value
+                    utils.print_with_color("최종 fallback으로 FINISH 상태로 설정합니다.", "yellow")
+                    
         except Exception as e:
             utils.print_with_color(f"작업 후 LLM 상태 판단 프롬프트 실패: {e}", "red")
+            # 예외 발생 시에도 재요청
+            utils.print_with_color("예외 발생으로 재요청합니다...", "yellow")
+            try:
+                retry_prompt = [
+                    {"role": "system", "content": f"""이전 요청에서 예외가 발생했습니다.
+원래 요청: '{original_request}'
+예외: {str(e)}
+
+다시 한번 명확하게 응답해주세요:
+- **완료되었다면**: Status: FINISH, WebPlan: []
+- **아직 미완료라면**: Status: CONTINUE, WebPlan에 남은 단계만 포함
+
+JSON 형식으로만 응답해주세요."""},
+                    {"role": "user", "content": f"사용자의 요청 '{original_request}'이(가) 실제로 완료되었는지 판단하고, Status와 WebPlan을 올바르게 응답하세요."}
+                ]
+                
+                retry_response, _ = self.host_agent.get_response(retry_prompt, "HOSTAGENT", use_backup_engine=True)
+                retry_response_json = self.host_agent.response_to_dict(retry_response)
+                retry_status = retry_response_json.get("Status", "").upper()
+                
+                if retry_status == "FINISH":
+                    utils.print_with_color("재요청 후 LLM이 FINISH 상태를 반환했습니다. 세션을 종료합니다.", "yellow")
+                    self.status = self._agent_status_manager.FINISH.value
+                elif retry_status == "CONTINUE":
+                    utils.print_with_color("재요청 후 LLM이 CONTINUE 상태를 반환했습니다. 남은 계획을 실행합니다.", "yellow")
+                    self.status = self._agent_status_manager.CONTINUE.value
+                    self._web_plan = retry_response_json.get("WebPlan", [])
+                else:
+                    utils.print_with_color(f"재요청 후에도 Status 파싱 실패: {retry_status}", "red")
+                    # 최종 fallback: 기본값으로 설정
+                    self.status = self._agent_status_manager.FINISH.value
+                    utils.print_with_color("최종 fallback으로 FINISH 상태로 설정합니다.", "yellow")
+                    
+            except Exception as retry_e:
+                utils.print_with_color(f"재요청도 실패: {retry_e}", "red")
+                # 최종 fallback: 기본값으로 설정
+                self.status = self._agent_status_manager.FINISH.value
+                utils.print_with_color("최종 fallback으로 FINISH 상태로 설정합니다.", "yellow")
 
     def _print_user_response(self) -> None:
         """
@@ -958,6 +1049,34 @@ class HostAgentProcessor(BaseProcessor):
 
         self.host_agent.blackboard.add_trajectories(memorized_action)
 
+    def _get_previous_page_info(self) -> Dict[str, Any]:
+        """
+        Get previous page information from blackboard to accumulate.
+        :return: Dictionary containing previous page information.
+        """
+        try:
+            if self.host_agent and self.host_agent.blackboard and not self.host_agent.blackboard.is_empty():
+                blackboard_prompt = self.host_agent.blackboard.blackboard_to_prompt()
+                
+                # Find the most recent web_automation_feedback
+                for item in reversed(blackboard_prompt):
+                    if isinstance(item, dict) and item.get('type') == 'web_automation_feedback':
+                        page_info = item.get('page_info', {})
+                        if page_info:
+                            return page_info
+                
+            return {
+                'previous_pages': [],
+                'all_llm_analyses': []
+            }
+            
+        except Exception as e:
+            utils.print_with_color(f"이전 페이지 정보 가져오기 실패: {e}", "yellow")
+            return {
+                'previous_pages': [],
+                'all_llm_analyses': []
+            }
+
     def _get_current_page_info(self) -> Dict[str, Any]:
         """
         Get current page information for plan modification.
@@ -966,8 +1085,6 @@ class HostAgentProcessor(BaseProcessor):
         try:
             # Wait for page to fully load
             utils.print_with_color("페이지 로딩을 기다립니다...", "cyan")
-            import time
-            time.sleep(3)  # Wait 3 seconds for page to load
             
             current_url = self._selenium_receiver.driver.current_url
             page_title = self._selenium_receiver.get_page_title()
@@ -975,20 +1092,152 @@ class HostAgentProcessor(BaseProcessor):
             utils.print_with_color(f"현재 페이지: {page_title}", "cyan")
             utils.print_with_color(f"현재 URL: {current_url}", "cyan")
             
-            return {
-                'title': page_title,
-                'url': current_url,
-                'clickable_elements': [],
-                'element_texts': []
+            # Capture screenshot using existing method
+            screenshot_url = ""
+            try:
+                if hasattr(self, 'photographer'):
+                    # Use existing screenshot if available
+                    if hasattr(self, '_desktop_screen_url') and self._desktop_screen_url:
+                        screenshot_url = self._desktop_screen_url
+                        utils.print_with_color("기존 스크린샷 사용", "cyan")
+                    else:
+                        # Capture new screenshot using existing method
+                        desktop_save_path = self.log_path + f"web_action_step{self.session_step}.png"
+                        self.photographer.capture_desktop_screen_screenshot(
+                            all_screens=True, save_path=desktop_save_path
+                        )
+                        screenshot_url = self.photographer.encode_image_from_path(desktop_save_path)
+                        utils.print_with_color("새 스크린샷 캡처 완료", "cyan")
+            except Exception as e:
+                utils.print_with_color(f"스크린샷 캡처 실패: {e}", "yellow")
+            
+            # Get search result summary using new function
+            search_summary = self._get_search_result_summary(current_url, page_title, screenshot_url)
+            
+            # Get previous page info from blackboard to accumulate
+            previous_page_info = self._get_previous_page_info()
+            
+            # Accumulate information
+            accumulated_info = {
+                'current_page': {
+                    'title': page_title,
+                    'url': current_url,
+                    'screenshot_url': screenshot_url,
+                    'search_summary': search_summary,
+                    'timestamp': time.time()
+                },
+                'previous_pages': previous_page_info.get('previous_pages', []),
+                'all_search_summaries': previous_page_info.get('all_search_summaries', []) + [search_summary],
+                'total_pages_visited': previous_page_info.get('total_pages_visited', 0) + 1
             }
+            
+            return accumulated_info
             
         except Exception as e:
             utils.print_with_color(f"페이지 정보 수집 실패: {e}", "red")
             return {
-                'title': 'Unknown',
-                'url': 'Unknown',
-                'clickable_elements': [],
-                'element_texts': [],
+                'current_page': {
+                    'title': 'Unknown',
+                    'url': 'Unknown',
+                    'screenshot_url': '',
+                    'search_summary': {'summary': '분석 실패', 'extracted_info': []},
+                    'timestamp': time.time()
+                },
+                'previous_pages': [],
+                'all_search_summaries': [],
+                'total_pages_visited': 0,
+                'error': str(e)
+            }
+
+    def _get_search_result_summary(self, current_url: str, page_title: str, screenshot_url: str) -> Dict[str, Any]:
+        """
+        Get search result summary from the current page.
+        :param current_url: The current URL.
+        :param page_title: The current page title.
+        :param screenshot_url: The screenshot URL.
+        :return: Dictionary containing search result summary.
+        """
+        try:
+            # Check if this is a search result page
+            is_search_page = any(keyword in current_url.lower() or keyword in page_title.lower() 
+                               for keyword in ['search', '검색', 'google', 'naver', 'bing'])
+            
+            if not is_search_page:
+                return {
+                    'summary': '검색 결과 페이지가 아님',
+                    'extracted_info': [],
+                    'is_search_page': False
+                }
+            
+            # Get page text content for analysis
+            page_text = ""
+            try:
+                page_text = self._selenium_receiver.driver.find_element("tag name", "body").text
+                # Limit text length to avoid too large data
+                page_text = page_text[:3000] if len(page_text) > 3000 else page_text
+            except Exception as e:
+                utils.print_with_color(f"페이지 텍스트 가져오기 실패: {e}", "yellow")
+                page_text = ""
+            
+            # Extract search results using LLM
+            prompt = f"""현재 페이지에서 검색 결과를 요약해주세요:
+
+URL: {current_url}
+제목: {page_title}
+페이지 텍스트: {page_text[:1000]}...
+
+이 페이지에서 찾을 수 있는 주요 정보나 검색 결과를 요약해주세요.
+예를 들어:
+- 영화 제목이 있다면 정확한 제목 추출
+- 상영시간 정보가 있다면 추출
+- 기타 관련 정보 추출
+
+응답 형식:
+- 요약: "페이지 요약"
+- 추출된 정보: ["정보1", "정보2", ...]
+
+간단한 텍스트로만 응답해주세요."""
+
+            llm_response, _ = self.host_agent.get_response(
+                [{"role": "user", "content": prompt}], "HOSTAGENT", use_backup_engine=True
+            )
+            
+            # Simple text-based parsing
+            response_text = llm_response.strip()
+            
+            # Extract summary and information
+            summary = "검색 결과 분석 완료"
+            extracted_info = []
+            
+            # Try to extract information from response
+            if "요약:" in response_text:
+                summary_part = response_text.split("요약:")[1].split("추출된 정보:")[0].strip()
+                summary = summary_part
+                
+            if "추출된 정보:" in response_text:
+                info_part = response_text.split("추출된 정보:")[1].strip()
+                # Simple extraction of list items
+                if "[" in info_part and "]" in info_part:
+                    info_content = info_part[info_part.find("[")+1:info_part.find("]")]
+                    extracted_info = [item.strip().strip('"\'') for item in info_content.split(",") if item.strip()]
+            
+            return {
+                'summary': summary,
+                'extracted_info': extracted_info,
+                'is_search_page': True,
+                'page_title': page_title,
+                'url': current_url,
+                'raw_response': llm_response[:300]  # Store first 300 chars for debugging
+            }
+            
+        except Exception as e:
+            utils.print_with_color(f"검색 결과 요약 실패: {e}", "red")
+            return {
+                'summary': '검색 결과 요약 실패',
+                'extracted_info': [],
+                'is_search_page': False,
+                'page_title': page_title,
+                'url': current_url,
                 'error': str(e)
             }
 
@@ -1033,6 +1282,19 @@ class HostAgentProcessor(BaseProcessor):
                 
                 if new_web_plan and isinstance(new_web_plan, list) and len(new_web_plan) > 0:
                     utils.print_with_color("새로운 웹 자동화 계획이 생성되었습니다:", "green")
+                    
+                    # Print full LLM response including Observation, Thought, etc.
+                    observation = new_response_json.get("Observation", "")
+                    thought = new_response_json.get("Thought", "")
+                    comment = new_response_json.get("Comment", "")
+                    
+                    if observation:
+                        utils.print_with_color(f"Observation: {observation}", "blue")
+                    if thought:
+                        utils.print_with_color(f"Thought: {thought}", "magenta")
+                    if comment:
+                        utils.print_with_color(f"Comment: {comment}", "yellow")
+                    
                     utils.print_with_color(f"새 계획: {new_web_plan}", "cyan")
                     
                     # Store the modified plan
@@ -1079,6 +1341,7 @@ class HostAgentProcessor(BaseProcessor):
         :param execution_results: List of previous execution results (optional).
         :return: Prompt message for LLM.
         """
+        
         original_request = self.context.get(ContextNames.REQUEST)
         # Get the actual HTML source of the current page
         html_source = ""
@@ -1088,33 +1351,48 @@ class HostAgentProcessor(BaseProcessor):
         except Exception as e:
             html_source = f"Failed to get HTML source: {e}"
         
-        # Get clickable elements for better analysis
-        clickable_elements = []
+        # Capture current screenshot for better analysis
+        screenshot_url = ""
         try:
-            if self._selenium_receiver:
-                clickable_elements = self._selenium_receiver.get_all_clickable_elements()
-                # 제한 제거: 전체 클릭 가능한 요소들을 전송
+            if hasattr(self, 'photographer'):
+                screenshot_path = self.photographer.capture_desktop_screen_screenshot(all_screens=True)
+                screenshot_url = self.photographer.encode_image_from_path(screenshot_path)
         except Exception as e:
-            clickable_elements = [{"error": f"Failed to get elements: {e}"}]
+            screenshot_url = f"Failed to capture screenshot: {e}"
+        
+        # Get blackboard information for context
+        blackboard_context = ""
+        try:
+            if self.host_agent and self.host_agent.blackboard and not self.host_agent.blackboard.is_empty():
+                blackboard_prompt = self.host_agent.blackboard.blackboard_to_prompt()
+                # Convert blackboard prompt to string for inclusion in system message
+                blackboard_context = "\n".join([str(item) for item in blackboard_prompt])
+            else:
+                blackboard_context = "이전 실행 기록이 없습니다."
+        except Exception as e:
+            blackboard_context = f"블랙보드 정보 가져오기 실패: {e}"
         
         # Summarize execution results
         execution_summary = self._summarize_execution_results(execution_results)
-        
-        # Safely format clickable elements as string (전체 전송)
-        try:
-            clickable_elements_str = json.dumps(clickable_elements, indent=2, ensure_ascii=False)
-        except Exception as e:
-            clickable_elements_str = f"Error formatting elements: {e}"
-        
         
         system_message = """당신은 웹 자동화 전문가입니다. 
 실패한 웹 자동화 단계를 분석하고, 현재 페이지의 HTML 구조와 클릭 가능한 요소들을 바탕으로 새로운 계획을 수립해야 합니다.
 
 **중요한 원칙:**
+웹 페이지의 어떤 요소를 클릭하는 과정이 필요할 때는 
 1. HTML을 자세히 분석하여 실제로 존재하는 요소의 정확한 속성을 찾으세요
 2. 가능하면 CSS 선택자나 XPath를 사용하여 정확한 요소를 지정하세요
 3. 텍스트 기반 검색보다는 id, class, name 등의 속성을 우선 사용하세요
-4. 검색의 경우 Enter 키 사용을 우선 고려하세요
+
+검색의 경우 Enter 키 사용을 우선 고려하세요
+
+계획을 수정할 때는 html source, 스크린샷, 블랙보드 정보 등을 기반으로 철저히 실패 원인을 분석하세요.
+스크린샷을 통해 현재 화면에 어떤 요소들이 보이는지, 어떤 상태인지 파악하세요.
+블랙보드의 이전 실행 기록을 참고하여 반복되는 실패 패턴을 피하고 더 나은 계획을 세우세요.
+당신은 계획을 일부 수정해야할 수도 있고, 완전히 새로운 계획을 수립해야 할 수도 있습니다.
+만약 현재 페이지에서 사용자의 요구를 이룰 수 없다고 판단된다면 당신은
+당신이 원하는 키워드를 네이버에 검색하여 필요한 정보를 얻는 과정을 계획에 포함할 수 있습니다.
+필요한 정보를 얻었다고 판단이 된다면 반드시 사용자의 요청을 완수하기 위한 계획을 세우세요.
 
 **실패한 단계 분석:**
 - 함수: {function}
@@ -1122,11 +1400,18 @@ class HostAgentProcessor(BaseProcessor):
 - 오류: {error}
 
 **현재 페이지 정보:**
-- 제목: {title}
-- URL: {url}
+- 제목: {current_title}
+- URL: {current_url}
+- 스크린샷: {screenshot_url}
+- 검색 결과 요약: {search_summary}
 
-**현재 페이지의 클릭 가능한 요소들:**
-{clickable_elements}
+**누적된 정보:**
+- 총 방문한 페이지 수: {total_pages}
+- 모든 검색 결과 요약: {all_search_summaries}
+- 이전 페이지들: {previous_pages}
+
+**블랙보드 정보 (이전 실행 기록):**
+{blackboard_context}
 
 **현재 페이지의 HTML 소스:**
 ```html
@@ -1138,6 +1423,10 @@ class HostAgentProcessor(BaseProcessor):
 **이전 단계 실행 요약:**
 {execution_summary}
 
+**중요: 검색 결과 요약 활용**
+이전에 수집한 모든 검색 결과 요약을 확인하고 활용하세요. 
+예를 들어 네이버에서 "코난 극장판"을 검색한 결과가 있다면, 그 결과에서 정확한 영화 제목을 추출하여 메가박스 검색에 사용하세요.
+
 위 정보를 바탕으로 실패한 단계를 대체할 수 있는 새로운 WebPlan을 생성하세요.
 
 **WebPlan 작성 가이드라인:**
@@ -1145,12 +1434,15 @@ class HostAgentProcessor(BaseProcessor):
 2. **정확한 선택자**: 가능하면 CSS 선택자(`#id`, `.class`) 또는 XPath 사용
 3. **요소 타입**: 실제 HTML 태그에 맞는 element_type 지정
 4. **중복 제거**: 이미 완료된 단계는 포함하지 않음
+5. **정보 수집**: 필요한 정보가 부족하면 반드시 네이버 검색 단계 포함
+   - `navigate_to_url`로 검색 엔진 이동
+   - `input_text`로 관련 키워드 검색
+   - 검색 결과에서 필요한 정보 확인 후 원래 사이트로 복귀
 
 **지원하는 함수들:**
 - `navigate_to_url`: URL로 이동
 - `input_text`: 텍스트 입력 (press_enter 옵션 포함)
 - `click_element`: 요소 클릭 (정확한 selector 사용 권장)
-- `get_page_source`: 페이지 소스 가져오기
 
 **응답 형식:**
 ```json
@@ -1167,9 +1459,14 @@ class HostAgentProcessor(BaseProcessor):
             function=failed_step.get('function', ''),
             args=failed_step.get('args', {}),
             error=failed_step.get('error', ''),
-            title=page_info.get('title', ''),
-            url=page_info.get('url', ''),
-            clickable_elements=clickable_elements_str,
+            current_title=page_info.get('title', ''),
+            current_url=page_info.get('url', ''),
+            screenshot_url=screenshot_url,
+            search_summary=page_info.get('search_summary', {}),
+            total_pages=page_info.get('total_pages_visited', 0),
+            all_search_summaries=page_info.get('all_search_summaries', []),
+            previous_pages=page_info.get('previous_pages', []),
+            blackboard_context=blackboard_context,
             html_source=html_source,
             request=original_request,
             execution_summary=execution_summary
@@ -1177,5 +1474,5 @@ class HostAgentProcessor(BaseProcessor):
         
         return [
             {"role": "system", "content": system_message},
-            {"role": "user", "content": f"실패한 단계를 수정해서 원래 요청 '{original_request}'을 완료할 수 있는 새로운 계획을 만들어주세요. HTML 구조와 클릭 가능한 요소들을 참고하여 정확한 selector를 사용하세요."}
+            {"role": "user", "content": f"실패한 단계를 수정해서 원래 요청 '{original_request}'을 완수할 수 있는 새로운 계획을 만들어주세요. 단순히 HTML 요소를 찾아서 클릭하거나 입력하는 것을 넘어서, 사용자의 요청을 완수하기 위해 필요한 추가 정보가 있다면 그것을 수집하는 단계도 포함하세요. 예를 들어 영화 제목이 애매하다면 정확한 제목을 검색하는 단계, 상영시간이 필요하다면 상영시간을 찾는 단계 등을 포함하여 완전한 계획을 세우세요. **중요**: 정보 수집이 필요하다면 반드시 navigate_to_url로 네이버에 이동하여 검색하는 단계를 WebPlan에 포함하세요."}
         ]
