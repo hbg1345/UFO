@@ -83,6 +83,7 @@ class HostAgentPrompter(BasicPrompter):
         selenium_status: str = "",
         blackboard_prompt: List[str] = [],
         continue_intention: str = "",
+        accumulated_summary: str = "",
     ) -> List[Dict[str, str]]:
         """
         Construct the prompt for LLMs.
@@ -96,6 +97,7 @@ class HostAgentPrompter(BasicPrompter):
         :param selenium_status: The status of Selenium WebDriver.
         :param blackboard_prompt: The blackboard prompt information.
         :param continue_intention: The intention from previous CONTINUE status.
+        :param accumulated_summary: The summary of accumulated information from previous rounds.
         return: The prompt for LLMs.
         """
 
@@ -120,6 +122,7 @@ class HostAgentPrompter(BasicPrompter):
                     selenium_status=selenium_status,
                     blackboard_prompt=json.dumps(blackboard_prompt),
                     continue_intention=continue_intention,
+                    accumulated_summary=accumulated_summary,
                 ),
             }
         )
