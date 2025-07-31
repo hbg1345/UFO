@@ -15,6 +15,7 @@ class MainWindow(QMainWindow):
 
         self.p = None
         self.helper = None
+        self.user_request = ""
         self.threadpool = QThreadPool()
         
         # 드래그 기능을 위한 변수들
@@ -352,6 +353,7 @@ class MainWindow(QMainWindow):
         self.cancel_btn.hide()
         self.main_btns.show()
         self.exit_btn.show()
+        self.user_request = ""
 
     def speak(self, text: str):
         self.animation_timer.start(500)
@@ -382,7 +384,8 @@ class MainWindow(QMainWindow):
             return
 
         self.text_box_layout.setCurrentIndex(0)
-        self.info_text.setText("<p>잠시만 기다려 주세요...</p>")   
+        self.info_text.setText("<p>잠시만 기다려 주세요...</p>")
+        self.speak("잠시만 기다려 주세요")
         self.command_btns.hide()
         self.cancel_btn.show()
 
@@ -414,7 +417,11 @@ class MainWindow(QMainWindow):
     def handle_stdout(self):
         data = self.p.readAllStandardOutput()
         stdout = bytes(data).decode("utf8", errors="replace")
-        self.message(stdout)
+        if stdout.startswith("input:"):
+            self.user_request = stdout.split(":")[1].strip()
+            self.message(f"요청 내용: {self.user_request}")
+        else:
+            self.message(f"요청 내용: {self.user_request}\n{stdout}")
 
     def handle_stderr(self):
         data = self.p.readAllStandardError()
@@ -453,7 +460,6 @@ class MainWindow(QMainWindow):
         self.helper = Helper()
         self.text_box_layout.setCurrentIndex(0)
         self.message("<p>잠시만 기다려 주세요...</p>")
-        self.speak("잠시만 기다려 주세요")
         
         # UI 업데이트를 강제로 처리
         QApplication.processEvents()
