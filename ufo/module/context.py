@@ -50,6 +50,7 @@ class ContextNames(Enum):
     )
     STRUCTURAL_LOGS = "STRUCTURAL_LOGS"  # The structural logs of the session
     SESSION = "SESSION"  # The session object itself
+    CONTINUE_INTENTION = "CONTINUE_INTENTION"  # The intention from previous CONTINUE status
 
     @property
     def default_value(self) -> Any:
@@ -102,6 +103,8 @@ class ContextNames(Enum):
             return defaultdict(lambda: defaultdict(list))
         elif self == ContextNames.SESSION:
             return None  # Session object will be set by the session itself
+        elif self == ContextNames.CONTINUE_INTENTION:
+            return ""
         else:
             return None
 
@@ -156,6 +159,8 @@ class ContextNames(Enum):
             return UIAWrapper
         elif self == ContextNames.SESSION:
             return Any  # Session object type
+        elif self == ContextNames.CONTINUE_INTENTION:
+            return str
         else:
             return Any
 

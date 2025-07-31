@@ -167,6 +167,7 @@ class HostAgent(BasicAgent):
         blackboard_prompt: List[Dict[str, str]],
         html_source: str = "",
         selenium_status: str = "",
+        continue_intention: str = "",
     ) -> List[Dict[str, Union[str, List[Dict[str, str]]]]]:
         """
         Construct the message.
@@ -178,6 +179,7 @@ class HostAgent(BasicAgent):
         :param blackboard_prompt: The blackboard prompt.
         :param html_source: The HTML source code for web automation.
         :param selenium_status: The status of Selenium WebDriver.
+        :param continue_intention: The intention from previous CONTINUE status.
         :return: The message.
         """
         hostagent_prompt_system_message = self.prompter.system_prompt_construction()
@@ -190,6 +192,7 @@ class HostAgent(BasicAgent):
             html_source=html_source,
             selenium_status=selenium_status,
             blackboard_prompt=blackboard_prompt,
+            continue_intention=continue_intention,
         )
 
         hostagent_prompt_message = self.prompter.prompt_construction(

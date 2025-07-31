@@ -105,4 +105,5 @@ user: |-
   <Previous Sub-tasks:> {prev_subtask}
   <Previous Plan:> {prev_plan}
   <Current User Request:> {user_request}
+  <Continue intention from previous round:> {continue_intention}
   <Your response:>

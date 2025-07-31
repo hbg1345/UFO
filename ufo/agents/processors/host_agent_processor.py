@@ -71,6 +71,50 @@ class HostAgentRequestLog:
     prompt: Dict[str, Any]
 
 
+@dataclass
+class AccumulatedInfo:
+    """
+    Accumulated information from search results and other sources.
+    """
+    search_results: List[Dict[str, Any]] = None
+    extracted_info: List[Dict[str, Any]] = None
+    total_searches: int = 0
+    last_updated: float = 0
+    
+    def __post_init__(self):
+        if self.search_results is None:
+            self.search_results = []
+        if self.extracted_info is None:
+            self.extracted_info = []
+    
+    def add_search_result(self, search_info: Dict[str, Any]):
+        """Add a new search result."""
+        self.search_results.append(search_info)
+        self.total_searches += 1
+        self.last_updated = time.time()
+    
+    def add_extracted_info(self, extracted_info: Dict[str, Any]):
+        """Add extracted information from search results."""
+        self.extracted_info.append(extracted_info)
+        self.last_updated = time.time()
+    
+    def get_summary(self) -> str:
+        """Get a summary of all accumulated information."""
+        summary_parts = []
+        
+        if self.search_results:
+            summary_parts.append(f"**Total searches performed: {self.total_searches}**")
+            for i, result in enumerate(self.search_results[-3:], 1):  # Last 3 searches
+                summary_parts.append(f"Search {i}: {result.get('query', 'Unknown')} → {result.get('summary', 'No summary')}")
+        
+        if self.extracted_info:
+            summary_parts.append(f"**Extracted key information: {len(self.extracted_info)} items**")
+            for i, info in enumerate(self.extracted_info[-5:], 1):  # Last 5 items
+                summary_parts.append(f"Info {i}: {info.get('key', 'Unknown')} = {info.get('value', 'No value')}")
+        
+        return "\n".join(summary_parts) if summary_parts else "No accumulated information yet."
+
+
 class HostAgentProcessor(BaseProcessor):
     """
     The processor for the host agent at a single step.
@@ -97,6 +141,9 @@ class HostAgentProcessor(BaseProcessor):
         self._selenium_receiver = None
         self._web_plan = []
         self._modified_plan = None  # For storing modified plans from LLM
+        
+        # Accumulated information manager
+        self._accumulated_info = AccumulatedInfo()
 
     def _extract_url_from_request(self, user_request: str) -> str:
         """
@@ -292,7 +339,10 @@ class HostAgentProcessor(BaseProcessor):
 
         # Remove blackboard from prompt to reduce context size
         blackboard_prompt = []
-
+        
+        # Get continue intention from previous round if available
+        continue_intention = self.context.get(ContextNames.CONTINUE_INTENTION)
+        
         # Construct the prompt message for the host agent.
         self._prompt_message = self.host_agent.message_constructor(
             image_list=[self._desktop_screen_url],
@@ -303,6 +353,7 @@ class HostAgentProcessor(BaseProcessor):
             blackboard_prompt=blackboard_prompt,
             html_source=getattr(self, 'html_source', ''),
             selenium_status=getattr(self, 'selenium_status', ''),
+            continue_intention=continue_intention,  # Add continue intention to prompt
         )
 
         request_data = HostAgentRequestLog(
@@ -458,6 +509,9 @@ class HostAgentProcessor(BaseProcessor):
             utils.print_with_color("작업 후 LLM이 CONTINUE 상태를 반환했습니다. 남은 계획을 실행합니다.", "yellow")
             if comment_from_llm:
                 utils.print_with_color(f"LLM Comment (CONTINUE 이유): {comment_from_llm}", "red")
+                # Store continue intention in context for next round
+                self.context.set(ContextNames.CONTINUE_INTENTION, comment_from_llm)
+                utils.print_with_color("CONTINUE 의도를 다음 라운드에 전달하기 위해 context에 저장했습니다.", "green")
             self.status = self._agent_status_manager.CONTINUE.value
             self._web_plan = self._response_json.get("WebPlan", [])
             
@@ -503,10 +557,10 @@ class HostAgentProcessor(BaseProcessor):
         """
         Execute the action.
         """
-        # If not a web request, just continue without executing any action
+        # If not a web request, just finish without executing any action
         if not self._is_web_request:
-            utils.print_with_color("웹 요청이 아니므로 액션 실행을 건너뜁니다.", "cyan")
-            self.status = self._agent_status_manager.CONTINUE.value
+            utils.print_with_color("웹 요청이 아니므로 액션 실행을 건너뛰고 세션을 종료합니다.", "cyan")
+            self.status = self._agent_status_manager.FINISH.value
             return
 
         # For web requests, create AppAgent and pass the web automation plan
@@ -565,11 +619,48 @@ class HostAgentProcessor(BaseProcessor):
                 
                 # Execute each step in the web plan
                 for i, step in enumerate(self._web_plan):
-                    utils.print_with_color(f"단계 {i+1} 실행 중...", "cyan")
+                    utils.print_with_color(f"단계 {i+1} 실행 전 검토 중...", "cyan")
                     
                     if isinstance(step, dict) and 'function' in step and 'args' in step:
                         function = step['function']
                         args = step['args']
+                        
+                        # Add step number to step dict
+                        step['step'] = i + 1
+                        
+                        # Request step review before execution
+                        review_result = self._request_step_review(step, execution_results)
+                        action = review_result.get("action", "EXECUTE")
+                        
+                        if action == "SKIP":
+                            utils.print_with_color(f"단계 {i+1} 건너뛰기: {review_result.get('reason', '')}", "yellow")
+                            continue
+                        elif action == "REPLAN":
+                            utils.print_with_color(f"전체 플랜 재구성 필요: {review_result.get('reason', '')}", "yellow")
+                            
+                            # Get current page information
+                            current_page_info = self._get_current_page_info()
+                            
+                            # Create step result for replanning
+                            replan_step = {
+                                'step': i + 1,
+                                'function': function,
+                                'args': args,
+                                'success': False,
+                                'error': 'Replanning requested',
+                                'page_info': current_page_info
+                            }
+                            
+                            # Request new plan based on accumulated information
+                            self._request_new_plan_with_accumulated_info(replan_step, current_page_info, execution_results)
+                            break  # Stop execution and wait for new plan
+                        elif action == "MODIFY":
+                            modified_step = review_result.get("modified_step")
+                            if modified_step:
+                                utils.print_with_color(f"단계 {i+1} 수정됨: {modified_step}", "yellow")
+                                function = modified_step.get("function", function)
+                                args = modified_step.get("args", args)
+                                step = {"function": function, "args": args, "step": i + 1}
                         
                         utils.print_with_color(f"단계 {i+1}: {function} 실행 (args: {args})", "cyan")
                         
@@ -620,13 +711,7 @@ class HostAgentProcessor(BaseProcessor):
                                     }
                                     
                                     # Send feedback to HostAgent for plan modification
-                                    # First check if the user's request is already completed using existing logic
-                                    if self._check_completion_status():
-                                        utils.print_with_color("사용자 요청이 이미 완수되었습니다. 작업을 종료합니다.", "green")
-                                        self.status = self._agent_status_manager.FINISH.value
-                                        return
-                                    
-                                    self._request_plan_modification(execution_results, failed_step, current_page_info)
+                                    self._request_new_plan_with_accumulated_info(failed_step, current_page_info, execution_results)
                                     break  # Stop execution and wait for new plan
                                 
                             elif function == "input_text":
@@ -660,7 +745,7 @@ class HostAgentProcessor(BaseProcessor):
                                     }
                                     
                                     # Send feedback to HostAgent for plan modification
-                                    self._request_plan_modification(execution_results, failed_step, current_page_info)
+                                    self._request_new_plan_with_accumulated_info(failed_step, current_page_info, execution_results)
                                     break  # Stop execution and wait for new plan
                                 else:
                                     utils.print_with_color(f"텍스트 입력 성공: {result}", "cyan")
@@ -682,7 +767,34 @@ class HostAgentProcessor(BaseProcessor):
                             if step_result['success']:
                                 execution_results.append(step_result)
                                 utils.print_with_color(f"단계 {i+1} 성공: {function} - execution_results에 추가됨", "green")
-                            
+                                
+                                # Let LLM analyze the successful step and update accumulated information if needed
+                                current_page_info = self._get_current_page_info()
+                                
+                                # Create step result for analysis
+                                successful_step = {
+                                    'step': i + 1,
+                                    'function': function,
+                                    'args': args,
+                                    'success': True,
+                                    'result': result,
+                                    'page_info': current_page_info
+                                }
+                                
+                                # Ask LLM to analyze the step and update accumulated information
+                                analysis_result = self._analyze_step_and_update_info(successful_step, current_page_info)
+                                
+                                # If LLM suggests updating accumulated info, do so
+                                if analysis_result.get('should_update_info', False):
+                                    utils.print_with_color("LLM이 새로운 정보를 발견하여 누적 정보를 업데이트합니다.", "yellow")
+                                    self._update_accumulated_info_from_analysis(analysis_result)
+                                
+                                # If LLM suggests replanning, request new plan
+                                if analysis_result.get('should_replan', False):
+                                    utils.print_with_color("LLM이 새로운 정보를 바탕으로 계획 수정을 제안합니다.", "yellow")
+                                    self._request_new_plan_with_accumulated_info(successful_step, current_page_info, execution_results)
+                                    break  # Stop execution and wait for new plan
+                        
                         except Exception as e:
                             utils.print_with_color(f"수정된 단계 {i+1} 실행 중 오류: {e}", "red")
                             
@@ -705,7 +817,7 @@ class HostAgentProcessor(BaseProcessor):
                             }
                             
                             # Send feedback to HostAgent for plan modification
-                            self._request_plan_modification(execution_results, failed_step, current_page_info)
+                            self._request_new_plan_with_accumulated_info(failed_step, current_page_info, execution_results)
                             break  # Stop execution and wait for new plan
                 
                 # Check if a new modified plan was generated
@@ -758,6 +870,44 @@ Original user request: '{original_request}'
 
 **CRITICAL: You MUST analyze the page information below to determine completion status.**
 
+**URL Analysis Guidelines:**
+- If URL contains "search_query=" or "q=" → Search has already been performed
+- If URL contains "results" → You are on search results page
+- If URL contains "watch?v=" → You are on a video page
+- If URL is a homepage (e.g., youtube.com, naver.com) → You need to search
+- If URL contains specific content → You may already be on the target page
+
+**Page Title Analysis:**
+- If title contains search terms → Search has likely been completed
+- If title shows "Results" or "검색결과" → You are on search results page
+- If title shows specific content → You may already be on target content
+
+**HTML ELEMENTS ANALYSIS GUIDE:**
+
+**1. CLICKABLE ELEMENTS:**
+- Look for buttons, links, and interactive elements
+- Use the exact text content for clicking
+- Prefer elements with specific IDs or classes
+- For navigation: look for menu items, navigation links
+- For actions: look for buttons like "Search", "Submit", "Play", etc.
+
+**2. INPUT ELEMENTS:**
+- Identify search boxes, form fields, text inputs
+- Use the ID, name, or placeholder text as selector
+- For search: look for input with type="search" or placeholder containing "search"
+- For forms: identify required fields and submit buttons
+
+**3. IMPORTANT TEXT CONTENT:**
+- Check headings (H1, H2, H3) for page context
+- Look for error messages, success messages, or status text
+- Identify page descriptions and meta information
+- Use this to understand what page you're on and what's available
+
+**4. FORM ELEMENTS:**
+- Identify forms and their submission methods
+- Look for form actions and methods
+- Understand what data needs to be submitted
+
 **COMPLETION CRITERIA:**
 **CRITICAL: You must determine if the user's original request has been ACTUALLY COMPLETED.**
 
@@ -786,14 +936,17 @@ Based on the above information, determine whether the user's request has been **
 **Valid status values ONLY: "FINISH" or "CONTINUE"**
 **Do NOT use "COMPLETED", "DONE", or any other status values.**
 
-**IMPORTANT: If you choose CONTINUE, you MUST explain why in the Comment field.**
+**Response format:**
+```json
+{{
+    "Status": "FINISH|CONTINUE",
+    "WebPlan": [],
+    "Comment": "Detailed reasoning with numbered analysis: 1) Current page state assessment, 2) User request completion check, 3) Remaining tasks identification (if any)"
+}}
+```
 
-**Examples:**
-- "Search for 석인호" → If search results are displayed → FINISH
-- "Search for weather" → If weather info is displayed → FINISH
-- "I want to listen to Jo Jae-min's piano on YouTube" → Just search results → CONTINUE (need video playing)
-- "Login to Naver" → Must actually be logged in → FINISH"""},
-            {"role": "user", "content": f"Based on the above work results, determine whether the user's request '{original_request}' has been actually completed and respond with correct Status and WebPlan. Use ONLY 'FINISH' or 'CONTINUE' as Status value. If you choose CONTINUE, explain why in the Comment field."}
+**Important**: You must respond in valid JSON format with Status and WebPlan fields."""},
+            {"role": "user", "content": f"Determine whether the user's request '{original_request}' has been actually completed and respond with correct Status. Use ONLY 'FINISH' or 'CONTINUE' as Status value."}
         ]
         # 3. Get LLM's answer and update status/plan accordingly
         try:
@@ -811,6 +964,9 @@ Based on the above information, determine whether the user's request has been **
                 utils.print_with_color("작업 후 LLM이 CONTINUE 상태를 반환했습니다. 남은 계획을 실행합니다.", "yellow")
                 if comment_from_llm:
                     utils.print_with_color(f"LLM Comment (CONTINUE 이유): {comment_from_llm}", "red")
+                    # Store continue intention in context for next round
+                    self.context.set(ContextNames.CONTINUE_INTENTION, comment_from_llm)
+                    utils.print_with_color("CONTINUE 의도를 다음 라운드에 전달하기 위해 context에 저장했습니다.", "green")
                 self.status = self._agent_status_manager.CONTINUE.value
                 self._web_plan = llm_response_json.get("WebPlan", [])
                 
@@ -875,7 +1031,7 @@ Based on the above information, determine whether the user's request has been **
 - "Search for weather" → If weather info is displayed → FINISH
 - "I want to listen to Jo Jae-min's piano on YouTube" → Just search results → CONTINUE (need video playing)
 - "Login to Naver" → Must actually be logged in → FINISH"""},
-                    {"role": "user", "content": f"Determine whether the user's request '{original_request}' has been actually completed and respond with correct Status and WebPlan. Use ONLY 'FINISH' or 'CONTINUE' as Status value. If you choose CONTINUE, explain why in the Comment field."}
+                    {"role": "user", "content": f"Determine whether the user's request '{original_request}' has been actually completed and respond with correct Status. Use ONLY 'FINISH' or 'CONTINUE' as Status value."}
                 ]
                 
                 retry_response, _ = self.host_agent.get_response(retry_prompt, "HOSTAGENT", use_backup_engine=True)
@@ -892,6 +1048,9 @@ Based on the above information, determine whether the user's request has been **
                     utils.print_with_color("재요청 후 LLM이 CONTINUE 상태를 반환했습니다. 남은 계획을 실행합니다.", "yellow")
                     if retry_comment:
                         utils.print_with_color(f"LLM Comment (CONTINUE 이유): {retry_comment}", "red")
+                        # Store continue intention in context for next round
+                        self.context.set(ContextNames.CONTINUE_INTENTION, retry_comment)
+                        utils.print_with_color("CONTINUE 의도를 다음 라운드에 전달하기 위해 context에 저장했습니다.", "green")
                     self.status = self._agent_status_manager.CONTINUE.value
                     self._web_plan = retry_response_json.get("WebPlan", [])
                 else:
@@ -941,7 +1100,7 @@ Based on the above information, determine whether the user's request has been **
 **Do NOT use "COMPLETED", "DONE", or any other status values.**
 
 Please respond in JSON format only."""},
-                    {"role": "user", "content": f"Determine whether the user's request '{original_request}' has been actually completed and respond with correct Status and WebPlan. Use ONLY 'FINISH' or 'CONTINUE' as Status value. If you choose CONTINUE, explain why in the Comment field."}
+                    {"role": "user", "content": f"Determine whether the user's request '{original_request}' has been actually completed and respond with correct Status. Use ONLY 'FINISH' or 'CONTINUE' as Status value."}
                 ]
                 
                 retry_response, _ = self.host_agent.get_response(retry_prompt, "HOSTAGENT", use_backup_engine=True)
@@ -953,6 +1112,11 @@ Please respond in JSON format only."""},
                     self.status = self._agent_status_manager.FINISH.value
                 elif retry_status == "CONTINUE":
                     utils.print_with_color("재요청 후 LLM이 CONTINUE 상태를 반환했습니다. 남은 계획을 실행합니다.", "yellow")
+                    if retry_comment:
+                        utils.print_with_color(f"LLM Comment (CONTINUE 이유): {retry_comment}", "red")
+                        # Store continue intention in context for next round
+                        self.context.set(ContextNames.CONTINUE_INTENTION, retry_comment)
+                        utils.print_with_color("CONTINUE 의도를 다음 라운드에 전달하기 위해 context에 저장했습니다.", "green")
                     self.status = self._agent_status_manager.CONTINUE.value
                     self._web_plan = retry_response_json.get("WebPlan", [])
                 else:
@@ -1335,7 +1499,7 @@ Please respond in JSON format only."""},
 
 URL: {current_url}
 Title: {page_title}
-Page text: {page_text[:1000]}...
+Page text: {page_text}...
 
 Please summarize the main information or search results that can be found on this page.
 For example:
@@ -1343,34 +1507,43 @@ For example:
 - If there are showtime information, extract it
 - Extract other relevant information
 
-Response format:
-- Summary: "Page summary"
-- Extracted information: ["Info1", "Info2", ...]
+**Response format:**
+```json
+{{
+    "summary": "Page summary",
+    "extracted_info": ["Info1", "Info2", "Info3"]
+}}
+```
 
-Please respond in simple text only."""
+Please respond in valid JSON format as specified above."""
 
             llm_response, _ = self.host_agent.get_response(
                 [{"role": "user", "content": prompt}], "HOSTAGENT", use_backup_engine=True
             )
             
-            # Simple text-based parsing
-            response_text = llm_response.strip()
-            
-            # Extract summary and information
-            summary = "Search result analysis completed"
-            extracted_info = []
-            
-            # Try to extract information from response
-            if "Summary:" in response_text:
-                summary_part = response_text.split("Summary:")[1].split("Extracted information:")[0].strip()
-                summary = summary_part
+            # Parse JSON response
+            try:
+                response_json = self.host_agent.response_to_dict(llm_response)
+                summary = response_json.get("summary", "Search result analysis completed")
+                extracted_info = response_json.get("extracted_info", [])
+            except Exception as parse_error:
+                utils.print_with_color(f"JSON parsing failed for search summary: {parse_error}", "yellow")
+                # Fallback to simple text parsing
+                response_text = llm_response.strip()
+                summary = "Search result analysis completed"
+                extracted_info = []
                 
-            if "Extracted information:" in response_text:
-                info_part = response_text.split("Extracted information:")[1].strip()
-                # Simple extraction of list items
-                if "[" in info_part and "]" in info_part:
-                    info_content = info_part[info_part.find("[")+1:info_part.find("]")]
-                    extracted_info = [item.strip().strip('"\'') for item in info_content.split(",") if item.strip()]
+                # Try to extract information from response
+                if "summary" in response_text.lower():
+                    summary_part = response_text.split("summary")[1].split("extracted_info")[0].strip()
+                    summary = summary_part.strip('":,')
+                    
+                if "extracted_info" in response_text.lower():
+                    info_part = response_text.split("extracted_info")[1].strip()
+                    # Simple extraction of list items
+                    if "[" in info_part and "]" in info_part:
+                        info_content = info_part[info_part.find("[")+1:info_part.find("]")]
+                        extracted_info = [item.strip().strip('"\'') for item in info_content.split(",") if item.strip()]
             
             return {
                 'summary': summary,
@@ -1391,21 +1564,22 @@ Please respond in simple text only."""
                 'error': str(e)
             }
 
-    def _request_plan_modification(self, execution_results: List[Dict], failed_step: Dict, page_info: Dict[str, Any]) -> None:
+    def _request_plan_modification(self, execution_results: List[Dict], current_step: Dict, page_info: Dict[str, Any]) -> None:
         """
         Request plan modification from HostAgent based on execution results.
         :param execution_results: List of all execution results.
-        :param failed_step: The step that failed.
+        :param current_step: The current step (failed or successful).
         :param page_info: Current page information.
         """
         try:
-            utils.print_with_color("Requesting plan modification based on execution results...", "yellow")
+            step_status = "failed" if not current_step.get('success', False) else "successful"
+            utils.print_with_color(f"Requesting plan modification based on {step_status} execution results...", "yellow")
             
             # Create feedback message for HostAgent
             feedback_message = {
                 'type': 'web_automation_feedback',
                 'execution_results': execution_results,
-                'failed_step': failed_step,
+                'current_step': current_step,
                 'page_info': page_info,
                 'request': self.context.get(ContextNames.REQUEST),
                 'timestamp': time.time()
@@ -1417,7 +1591,7 @@ Please respond in simple text only."""
                 utils.print_with_color("Execution results stored in blackboard.", "cyan")
             
             # Create a new prompt for plan modification
-            modification_prompt = self._create_modification_prompt(failed_step, page_info)
+            modification_prompt = self._create_modification_prompt(current_step, page_info)
             
             # Get new plan from LLM
             utils.print_with_color("Requesting new plan from LLM...", "cyan")
@@ -1454,9 +1628,9 @@ Please respond in simple text only."""
 {response_to_parse[:1000]}...
 
 **FAILED EXECUTION DETAILS:**
-**Failed Function:** {failed_step.get('function', '')}
-**Failed Arguments:** {failed_step.get('args', {})}
-**Execution Error:** {failed_step.get('error', '')}
+**Failed Function:** {current_step.get('function', '')}
+**Failed Arguments:** {current_step.get('args', {})}
+**Execution Error:** {current_step.get('error', '')}
 
 **PROBLEM:** You used incorrect function names and argument formats.
 
@@ -1473,21 +1647,8 @@ You must respond in EXACT JSON format with these fields:
 - `input_text`: {{"text": "text to input", "selector": "#search-field", "press_enter": true}}
 - `click_element`: {{"text": "element text", "element_type": "button"}}
 
-**EXAMPLE OF CORRECT FORMAT:**
-```json
-{{
-  "Observation": "Current page shows search results",
-  "Thought": "Need to click on first video result",
-  "WebPlan": [
-    {{"function": "input_text", "args": {{"text": "조재민 피아노", "selector": "#search-field", "press_enter": true}}}},
-    {{"function": "click_element", "args": {{"text": "Video Title", "element_type": "link"}}}}
-  ],
-  "Comment": "Clicking first video to play"
-}}
-```
-
 **CRITICAL:** Convert your previous response to this exact format. Use ONLY the correct function names and argument formats above."""},
-                            {"role": "user", "content": f"Create a new WebPlan for the failed step. Function: {failed_step.get('function', '')}, Arguments: {failed_step.get('args', {})}, Error: {failed_step.get('error', '')}. Original request: {original_request}. Convert your previous response to the correct format."}
+                            {"role": "user", "content": f"Create a new WebPlan for the failed step. Function: {current_step.get('function', '')}, Arguments: {current_step.get('args', {})}, Error: {current_step.get('error', '')}. Original request: {original_request}. Convert your previous response to the correct format."}
                         ]
                         
                         retry_response, _ = self.host_agent.get_response(retry_prompt, "HOSTAGENT", use_backup_engine=True)
@@ -1560,10 +1721,10 @@ You must respond in EXACT JSON format with these fields:
         
         return "\n".join(summary_parts)
 
-    def _create_modification_prompt(self, failed_step: Dict, page_info: Dict[str, Any], execution_results: list = None) -> List[Dict[str, Any]]:
+    def _create_modification_prompt(self, current_step: Dict, page_info: Dict[str, Any], execution_results: list = None) -> List[Dict[str, Any]]:
         """
-        Create a prompt for plan modification based on failed step and page info.
-        :param failed_step: The step that failed.
+        Create a prompt for plan modification based on current step and page info.
+        :param current_step: The current step (failed or successful).
         :param page_info: Current page information.
         :param execution_results: List of previous execution results (optional).
         :return: Prompt message for LLM.
@@ -1591,11 +1752,61 @@ You must respond in EXACT JSON format with these fields:
         # Get blackboard information for context
         blackboard_context = "Blackboard information removed to reduce context size."
         
+        # Get accumulated information from LLM analysis
+        accumulated_summary = self._accumulated_info.get_summary()
+        
         # Summarize execution results
         execution_summary = self._summarize_execution_results(execution_results)
         
-        system_message = """You are a web automation expert. 
-You need to analyze failed web automation steps and create new plans based on the current page's HTML structure and clickable elements.
+        # Determine if this is a failed step or successful step
+        is_failed = not current_step.get('success', False)
+        step_status = "failed" if is_failed else "successful"
+        
+        system_message = f"""You are a web automation expert. 
+You need to analyze {step_status} web automation steps and create new plans based on the current page's HTML structure and clickable elements.
+
+**CRITICAL: Always analyze the current URL and page title first to understand the current state.**
+
+**URL Analysis Guidelines:**
+- If URL contains "search_query=" or "q=" → Search has already been performed
+- If URL contains "results" → You are on search results page
+- If URL contains "watch?v=" → You are on a video page
+- If URL is a homepage (e.g., youtube.com, naver.com) → You need to search
+- If URL contains specific content → You may already be on the target page
+
+**Page Title Analysis:**
+- If title contains search terms → Search has likely been completed
+- If title shows "Results" or "검색결과" → You are on search results page
+- If title shows specific content → You may already be on target content
+
+**HTML ELEMENTS ANALYSIS GUIDE:**
+
+**1. CLICKABLE ELEMENTS:**
+- Look for buttons, links, and interactive elements
+- Use the exact text content for clicking
+- Prefer elements with specific IDs or classes
+- For navigation: look for menu items, navigation links
+- For actions: look for buttons like "Search", "Submit", "Play", etc.
+
+**2. INPUT ELEMENTS:**
+- Identify search boxes, form fields, text inputs
+- Use the ID, name, or placeholder text as selector
+- For search: look for input with type="search" or placeholder containing "search"
+- For forms: identify required fields and submit buttons
+
+**3. IMPORTANT TEXT CONTENT:**
+- Check headings (H1, H2, H3) for page context
+- Look for error messages, success messages, or status text
+- Identify page descriptions and meta information
+- Use this to understand what page you're on and what's available
+
+**4. FORM ELEMENTS:**
+- Identify forms and their submission methods
+- Look for form actions and methods
+- Understand what data needs to be submitted
+
+**Accumulated information from previous LLM analyses:**
+{accumulated_summary}
 
 **Important principles:**
 When you need to click an element on a web page:
@@ -1605,46 +1816,55 @@ When you need to click an element on a web page:
 
 For searches, prioritize using Enter key
 
-When modifying plans, thoroughly analyze the failure cause based on html source, screenshots, blackboard information, etc.
+When modifying plans, thoroughly analyze the {step_status} step based on html source, screenshots, blackboard information, and accumulated information from LLM analysis.
 Use screenshots to understand what elements are visible on the current screen and what state it's in.
 Refer to previous execution records in the blackboard to avoid repeating failure patterns and create better plans.
+Use accumulated information from previous LLM analyses to make informed decisions.
 You may need to partially modify the plan or create a completely new plan.
 If you determine that the user's needs cannot be met on the current page, you can
-include a process to search for the information you want on Naver to obtain necessary information.
+include a process to search for the information you want on appropriate search sites to obtain necessary information.
 If you determine that necessary information has been obtained, you must create a plan to complete the user's request.
 
-**Failed step analysis:**
-- Function: {function}
-- Arguments: {args}
-- Error: {error}
+**Current step analysis:**
+- Function: {{function}}
+- Arguments: {{args}}
+- Status: {step_status}
+- Result: {{result}}
+- Error: {{error}}
 
 **Current page information:**
-- Title: {current_title}
-- URL: {current_url}
-- Screenshot: {screenshot_url}
-- Search result summary: {search_summary}
+- Title: {{current_title}}
+- URL: {{current_url}}
+- Screenshot: {{screenshot_url}}
+- Search result summary: {{search_summary}}
 
 **Accumulated information:**
-- Total pages visited: {total_pages}
-- All search result summaries: {all_search_summaries}
-- Previous pages: {previous_pages}
+- Total pages visited: {{total_pages}}
+- All search result summaries: {{all_search_summaries}}
+- Previous pages: {{previous_pages}}
 
 **Blackboard information (previous execution records):**
-{blackboard_context}
+{{blackboard_context}}
 
 **Current page interactive elements:**
-{html_source}
+{{html_source}}
 
-**Original request:** {request}
+**Original request:** {{request}}
 
 **Previous step execution summary:**
-{execution_summary}
+{{execution_summary}}
 
 **Important: Utilize search result summaries**
 Check and utilize all previously collected search result summaries.
 For example, if you searched for "Conan movie" on Naver, extract the exact movie title from the results and use it for Megabox search.
 
-Based on the above information, create a new WebPlan that can replace the failed step.
+Based on the above information, create a new WebPlan that can continue from the current step.
+
+**PLANNING REQUIREMENTS:**
+1. **Step-by-step planning**: First, write your plan as numbered steps in the Thought section
+2. **Consistency check**: Ensure your WebPlan exactly matches your numbered steps
+3. **Clear reasoning**: Explain why each step is necessary and how it contributes to the goal
+4. **Avoid redundancy**: Don't include steps that have already been completed
 
 **WebPlan writing guidelines:**
 1. **Search input**: Prioritize using `press_enter: true` in `input_text` function
@@ -1665,17 +1885,20 @@ Based on the above information, create a new WebPlan that can replace the failed
 ```json
 {{
     "Observation": "Current situation analysis (HTML structure based)",
-    "Thought": "New plan creation process",
+    "Thought": "Step-by-step planning process with numbered steps: 1) First step reason, 2) Second step reason, 3) Third step reason...",
     "WebPlan": [
         {{"function": "function_name", "args": {{"argument": "value"}}}},
         ...
     ],
-    "Comment": "Reason for plan modification"
+    "Comment": "Reason for plan modification and consistency confirmation"
 }}
-```""".format(
-            function=failed_step.get('function', ''),
-            args=failed_step.get('args', {}),
-            error=failed_step.get('error', ''),
+```
+
+**CRITICAL: Your WebPlan must exactly match the numbered steps in your Thought section.**""".format(
+            function=current_step.get('function', ''),
+            args=current_step.get('args', {}),
+            result=current_step.get('result', ''),
+            error=current_step.get('error', ''),
             current_title=page_info.get('title', ''),
             current_url=page_info.get('url', ''),
             screenshot_url=screenshot_url,
@@ -1703,50 +1926,105 @@ Based on the above information, create a new WebPlan that can replace the failed
             if not self._selenium_receiver or not self._selenium_receiver.driver:
                 return "Selenium driver not available"
             
-            elements_info = []
+            # Get current page title and URL first
+            page_info = []
+            try:
+                title = self._selenium_receiver.get_page_title()
+                url = self._selenium_receiver.driver.current_url
+                page_info.append(f"**Current Page:** {title}")
+                page_info.append(f"**URL:** {url}")
+            except Exception as e:
+                page_info.append(f"Failed to get page info: {e}")
             
-            # Get clickable elements
+            # 1. CLICKABLE ELEMENTS
+            clickable_section = ["\n**CLICKABLE ELEMENTS:**"]
             try:
                 clickable_elements = self._selenium_receiver.get_all_clickable_elements()
                 if clickable_elements:
-                    elements_info.append("**Clickable Elements:**")
                     for i, elem in enumerate(clickable_elements):
-                        elements_info.append(f"  {i+1}. {elem.get('text', 'No text')} (tag: {elem.get('tag_name', 'unknown')})")
+                        text = elem.get('text', 'No text').strip()
+                        tag_name = elem.get('tag_name', 'unknown')
+                        element_id = elem.get('id', 'no-id')
+                        element_class = elem.get('class', 'no-class')
+                        
+                        if text and len(text) > 0:  # Only include elements with actual text
+                            clickable_section.append(f"  {i+1}. Text: '{text}' | Tag: {tag_name} | ID: {element_id} | Class: {element_class}")
+                else:
+                    clickable_section.append("  No clickable elements found")
             except Exception as e:
-                elements_info.append(f"Failed to get clickable elements: {e}")
+                clickable_section.append(f"  Failed to get clickable elements: {e}")
             
-            # Get input elements
+            # 2. INPUT ELEMENTS
+            input_section = ["\n**INPUT ELEMENTS:**"]
             try:
                 input_elements = self._selenium_receiver.driver.find_elements("tag name", "input")
                 if input_elements:
-                    elements_info.append("\n**Input Elements:**")
                     for i, elem in enumerate(input_elements):
                         input_type = elem.get_attribute("type") or "text"
                         input_id = elem.get_attribute("id") or "no-id"
                         input_name = elem.get_attribute("name") or "no-name"
                         input_placeholder = elem.get_attribute("placeholder") or "no-placeholder"
-                        elements_info.append(f"  {i+1}. type={input_type}, id={input_id}, name={input_name}, placeholder={input_placeholder}")
+                        input_value = elem.get_attribute("value") or ""
+                        
+                        # Only include relevant input elements
+                        if input_type in ["text", "search", "email", "password", "number"] or input_placeholder != "no-placeholder":
+                            input_section.append(f"  {i+1}. Type: {input_type} | ID: {input_id} | Name: {input_name} | Placeholder: '{input_placeholder}' | Value: '{input_value}'")
+                else:
+                    input_section.append("  No input elements found")
             except Exception as e:
-                elements_info.append(f"Failed to get input elements: {e}")
+                input_section.append(f"  Failed to get input elements: {e}")
             
-            # Get current page title and URL
+            # 3. TEXT CONTENT (Main headings and important text)
+            text_section = ["\n**IMPORTANT TEXT CONTENT:**"]
             try:
-                title = self._selenium_receiver.get_page_title()
-                url = self._selenium_receiver.driver.current_url
-                elements_info.insert(0, f"**Current Page:** {title}")
-                elements_info.insert(1, f"**URL:** {url}")
+                # Get main headings (h1, h2, h3)
+                headings = []
+                for tag in ["h1", "h2", "h3"]:
+                    try:
+                        heading_elements = self._selenium_receiver.driver.find_elements("tag name", tag)
+                        for elem in heading_elements:
+                            heading_text = elem.text.strip()
+                            if heading_text and len(heading_text) > 0:
+                                headings.append(f"  {tag.upper()}: '{heading_text}'")
+                    except Exception:
+                        continue
+                
+                if headings:
+                    text_section.extend(headings)
+                else:
+                    text_section.append("  No main headings found")
+                
+                # Get page description or meta description
+                try:
+                    meta_desc = self._selenium_receiver.driver.find_element("css selector", "meta[name='description']")
+                    if meta_desc:
+                        desc_text = meta_desc.get_attribute("content")
+                        if desc_text:
+                            text_section.append(f"  Description: '{desc_text[:100]}...'")
+                except Exception:
+                    pass
+                
             except Exception as e:
-                elements_info.insert(0, f"Failed to get page info: {e}")
+                text_section.append(f"  Failed to get text content: {e}")
             
-            # Get page text content (limited to reduce context)
+            # 4. FORM ELEMENTS (if any)
+            form_section = ["\n**FORM ELEMENTS:**"]
             try:
-                page_text = self._selenium_receiver.driver.find_element("tag name", "body").text
-                utils.print_with_color(f"인터랙티브 요소용 페이지 텍스트 길이: {len(page_text)} 문자", "cyan")
-                elements_info.append(f"\n**Page Text:**\n{page_text}")
+                forms = self._selenium_receiver.driver.find_elements("tag name", "form")
+                if forms:
+                    for i, form in enumerate(forms):
+                        form_action = form.get_attribute("action") or "no-action"
+                        form_method = form.get_attribute("method") or "no-method"
+                        form_section.append(f"  {i+1}. Action: {form_action} | Method: {form_method}")
+                else:
+                    form_section.append("  No forms found")
             except Exception as e:
-                elements_info.append(f"\n**Page Text:** Failed to get page text: {e}")
+                form_section.append(f"  Failed to get form elements: {e}")
             
-            return "\n".join(elements_info)
+            # Combine all sections
+            all_sections = page_info + clickable_section + input_section + text_section + form_section
+            
+            return "\n".join(all_sections)
             
         except Exception as e:
             return f"Failed to extract interactive elements: {e}"
@@ -1783,6 +2061,44 @@ Original user request: '{original_request}'
 
 **CRITICAL: You MUST analyze the page information below to determine completion status.**
 
+**URL Analysis Guidelines:**
+- If URL contains "search_query=" or "q=" → Search has already been performed
+- If URL contains "results" → You are on search results page
+- If URL contains "watch?v=" → You are on a video page
+- If URL is a homepage (e.g., youtube.com, naver.com) → You need to search
+- If URL contains specific content → You may already be on the target page
+
+**Page Title Analysis:**
+- If title contains search terms → Search has likely been completed
+- If title shows "Results" or "검색결과" → You are on search results page
+- If title shows specific content → You may already be on target content
+
+**HTML ELEMENTS ANALYSIS GUIDE:**
+
+**1. CLICKABLE ELEMENTS:**
+- Look for buttons, links, and interactive elements
+- Use the exact text content for clicking
+- Prefer elements with specific IDs or classes
+- For navigation: look for menu items, navigation links
+- For actions: look for buttons like "Search", "Submit", "Play", etc.
+
+**2. INPUT ELEMENTS:**
+- Identify search boxes, form fields, text inputs
+- Use the ID, name, or placeholder text as selector
+- For search: look for input with type="search" or placeholder containing "search"
+- For forms: identify required fields and submit buttons
+
+**3. IMPORTANT TEXT CONTENT:**
+- Check headings (H1, H2, H3) for page context
+- Look for error messages, success messages, or status text
+- Identify page descriptions and meta information
+- Use this to understand what page you're on and what's available
+
+**4. FORM ELEMENTS:**
+- Identify forms and their submission methods
+- Look for form actions and methods
+- Understand what data needs to be submitted
+
 **COMPLETION CRITERIA:**
 **CRITICAL: You must determine if the user's original request has been ACTUALLY COMPLETED.**
 
@@ -1791,6 +2107,9 @@ Original user request: '{original_request}'
 
 **Current page information:**
 {interactive_elements}
+
+**Blackboard information (previous execution records):**
+{blackboard_context}
 
 **MANDATORY ANALYSIS:**
 You MUST examine the page information above and determine if the user's request is completely fulfilled.
@@ -1806,7 +2125,18 @@ Based on the above information, determine whether the user's request has been **
 - **If still incomplete**: Status: "CONTINUE", include remaining steps in WebPlan
 
 **Valid status values ONLY: "FINISH" or "CONTINUE"**
-**Do NOT use "COMPLETED", "DONE", or any other status values.**"""},
+**Do NOT use "COMPLETED", "DONE", or any other status values.**
+
+**Response format:**
+```json
+{{
+    "Status": "FINISH|CONTINUE",
+    "WebPlan": [],
+    "Comment": "Detailed reasoning with numbered analysis: 1) Current page state assessment, 2) User request completion check, 3) Remaining tasks identification (if any)"
+}}
+```
+
+**Important**: You must respond in valid JSON format with Status and WebPlan fields."""},
                 {"role": "user", "content": f"Determine whether the user's request '{original_request}' has been actually completed and respond with correct Status. Use ONLY 'FINISH' or 'CONTINUE' as Status value."}
             ]
             
@@ -1825,3 +2155,629 @@ Based on the above information, determine whether the user's request has been **
         except Exception as e:
             utils.print_with_color(f"완수 상태 확인 중 오류: {e}", "red")
             return False
+
+    def _request_step_review(self, step: Dict, execution_results: List[Dict]) -> Dict:
+        """
+        Request review of a step before execution.
+        :param step: The step to be reviewed.
+        :param execution_results: List of previous execution results.
+        :return: Review result with action (execute/modify/skip).
+        """
+        try:
+            utils.print_with_color(f"단계 {step.get('step', 'unknown')} 실행 전 검토를 요청합니다.", "yellow")
+            
+            # Get current page information
+            current_page_info = self._get_current_page_info()
+            html_source = self._extract_interactive_elements()
+            accumulated_summary = self._accumulated_info.get_summary()
+            
+            # Get the full web plan for context
+            full_plan = self._web_plan
+            current_step_index = step.get('step', 1) - 1
+            
+            # Create review prompt
+            review_prompt = [
+                {"role": "system", "content": f"""You are a web automation expert reviewing a step before execution.
+
+**CRITICAL: Always analyze the current URL and page title first to understand the current state.**
+
+**URL Analysis Guidelines:**
+- If URL contains "search_query=" or "q=" → Search has already been performed
+- If URL contains "results" → You are on search results page
+- If URL contains "watch?v=" → You are on a video page
+- If URL is a homepage (e.g., youtube.com, naver.com) → You need to search
+- If URL contains specific content → You may already be on the target page
+
+**Page Title Analysis:**
+- If title contains search terms → Search has likely been completed
+- If title shows "Results" or "검색결과" → You are on search results page
+- If title shows specific content → You may already be on target content
+
+**CLICK ELEMENT ANALYSIS GUIDE (CRITICAL FOR CLICK OPERATIONS):**
+
+**1. CLICKABLE ELEMENTS ANALYSIS:**
+- **Exact Text Matching**: Find elements with EXACT text content that matches the target
+- **ID/Class Priority**: Prefer elements with specific IDs or classes over generic text
+- **Element Type Verification**: Verify the element type (button, link, div, etc.) matches the intended action
+- **Multiple Elements**: If multiple elements have similar text, choose the most specific one
+- **Context Relevance**: Ensure the element is in the right context (e.g., search results vs navigation)
+
+**2. CLICK ARGUMENT OPTIMIZATION:**
+- **text**: Use the EXACT text content from the HTML element
+- **element_type**: Match the actual HTML tag (button, link, div, span, etc.)
+- **selector**: Use CSS selector (#id, .class) when available, otherwise use XPath
+- **Priority Order**: ID > Class > Text > XPath
+
+**3. CLICK ELEMENT SELECTION STRATEGY:**
+- **Search Results**: Look for elements with video titles, product names, or specific content
+- **Navigation**: Look for menu items, breadcrumbs, or navigation links
+- **Actions**: Look for buttons with action text (Play, Buy, Subscribe, etc.)
+- **Forms**: Look for submit buttons, input fields, or form controls
+
+**INPUT TEXT ANALYSIS GUIDE (CRITICAL FOR INPUT OPERATIONS):**
+
+**1. INPUT ELEMENTS ANALYSIS:**
+- **Input Type Identification**: Look for input elements with type="text", type="search", type="email", etc.
+- **ID/Name Priority**: Prefer elements with specific IDs or name attributes over generic selectors
+- **Placeholder Text**: Use placeholder text to identify the correct input field
+- **Form Context**: Ensure the input is in the right form context (search form, login form, etc.)
+- **Multiple Inputs**: If multiple inputs exist, choose the most specific one based on context
+
+**2. INPUT ARGUMENT OPTIMIZATION:**
+- **text**: The text to be entered (keep as is)
+- **selector**: Use the most specific selector available:
+  * **Priority 1**: ID selector (#search, #query, #email)
+  * **Priority 2**: Name attribute ([name="search"], [name="q"])
+  * **Priority 3**: Class selector (.search-input, .form-control)
+  * **Priority 4**: XPath with specific attributes
+- **press_enter**: Set to true for search operations, false for form filling
+- **clear_first**: Set to true if you want to clear existing text before input
+
+**3. INPUT ELEMENT SELECTION STRATEGY:**
+- **Search Boxes**: Look for inputs with type="search" or placeholder containing "search"
+- **Form Fields**: Identify required fields by required attribute or form validation
+- **Login Forms**: Look for username/email and password fields
+- **Contact Forms**: Identify name, email, phone, message fields
+- **Search Forms**: Look for search inputs with appropriate submit buttons
+
+**4. INPUT VALIDATION:**
+- **Field Type**: Ensure the input type matches the expected data (text, email, number, etc.)
+- **Required Fields**: Check if the field is required and has proper validation
+- **Character Limits**: Consider maxlength attributes for text inputs
+- **Pattern Matching**: Check for pattern attributes that define input format
+
+**5. FORM SUBMISSION:**
+- **Submit Method**: Determine if form uses GET or POST method
+- **Submit Button**: Identify the correct submit button or use press_enter
+- **Form Action**: Check the form action URL for proper submission
+- **Validation**: Ensure all required fields are filled before submission
+
+**6. IMPORTANT TEXT CONTENT:**
+- Check headings (H1, H2, H3) for page context
+- Look for error messages, success messages, or status text
+- Identify page descriptions and meta information
+- Use this to understand what page you're on and what's available
+
+**7. FORM ELEMENTS:**
+- Identify forms and their submission methods
+- Look for form actions and methods
+- Understand what data needs to be submitted
+
+**Original user request:**
+{self.context.get(ContextNames.REQUEST)}
+
+**Full web automation plan:**
+{json.dumps(full_plan, indent=2, ensure_ascii=False)}
+
+**Current step to review (step {step.get('step', 'unknown')}):**
+- Function: {step.get('function', '')}
+- Arguments: {step.get('args', {})}
+
+**Current page information:**
+- Title: {current_page_info.get('current_page', {}).get('title', '')}
+- URL: {current_page_info.get('current_page', {}).get('url', '')}
+
+**Current page interactive elements:**
+{html_source}
+
+**Accumulated information from previous searches:**
+{accumulated_summary}
+
+**Previous execution results:**
+{self._summarize_execution_results(execution_results)}
+
+**REVIEW REQUIREMENTS:**
+1. **Analyze current step**: Check if the step is appropriate for the current page state
+2. **Check element availability**: Verify if the required elements exist on the page
+3. **Consider overall plan**: Ensure the step contributes to completing the user's request
+4. **Avoid redundancy**: Check if this step has already been completed or is unnecessary
+5. **For CLICK operations**: Carefully analyze available clickable elements and optimize arguments
+
+**Review criteria:**
+1. **EXECUTE**: If the step is appropriate for the current page, fits the overall plan, and likely to succeed
+2. **MODIFY**: If the step needs modification (wrong selector, missing element, better approach available, etc.)
+3. **SKIP**: If the step is unnecessary, already completed, or should be replaced with a better approach
+4. **REPLAN**: If the entire plan needs to be reconsidered based on accumulated information
+
+**Consider the overall context:**
+- Does this step contribute to completing the user's request?
+- Is there a better approach based on accumulated information?
+- Should the entire plan be restructured?
+- If information is missing, should we include Naver search steps to gather it?
+- **CRITICAL**: Is the current step redundant given the current page state?
+- **ANALYZE HTML ELEMENTS**: Check if the required elements (clickable/input) actually exist on the page
+- **FOR CLICK OPERATIONS**: Verify the exact text, element type, and selector match available elements
+
+**Response format:**
+```json
+{{
+    "action": "EXECUTE|MODIFY|SKIP|REPLAN",
+    "reason": "Detailed explanation with numbered reasoning: 1) Current page state analysis, 2) Step appropriateness check, 3) Element availability verification, 4) Overall plan contribution assessment, 5) For clicks: element matching analysis",
+    "modified_step": {{"function": "...", "args": {{...}}}} // Only if action is MODIFY
+}}
+```"""},
+                {"role": "user", "content": f"Review step {step.get('step', 'unknown')} in the context of the full plan and user request: {self.context.get(ContextNames.REQUEST)}. Should I execute, modify, skip, or replan?"}
+            ]
+            
+            # Get LLM's review
+            review_response, _ = self.host_agent.get_response(review_prompt, "HOSTAGENT", use_backup_engine=True)
+            review_json = self.host_agent.response_to_dict(review_response)
+            
+            action = review_json.get("action", "EXECUTE")
+            reason = review_json.get("reason", "")
+            modified_step = review_json.get("modified_step", None)
+            
+            utils.print_with_color(f"단계 검토 결과: {action} - {reason}", "cyan")
+            
+            if action == "REPLAN":
+                utils.print_with_color("전체 플랜 재구성이 필요합니다.", "yellow")
+                return {
+                    "action": "REPLAN",
+                    "reason": reason
+                }
+            elif action == "SKIP":
+                utils.print_with_color("단계가 건너뛰어집니다.", "yellow")
+                return {
+                    "action": "SKIP",
+                    "reason": reason
+                }
+            elif action == "MODIFY" and modified_step:
+                utils.print_with_color(f"단계가 수정되었습니다: {modified_step}", "yellow")
+                return {
+                    "action": "MODIFY",
+                    "reason": reason,
+                    "modified_step": modified_step
+                }
+            else:
+                utils.print_with_color("단계를 실행합니다.", "green")
+                return {
+                    "action": "EXECUTE",
+                    "reason": reason
+                }
+                
+        except Exception as e:
+            utils.print_with_color(f"단계 검토 중 오류: {e}", "red")
+            # 오류 발생 시 기본적으로 실행
+            return {
+                "action": "EXECUTE",
+                "reason": f"Review failed, executing by default: {e}"
+            }
+
+    def _extract_key_information_from_search(self, search_query: str, page_info: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract key information from search results using LLM.
+        :param search_query: The search query that was performed.
+        :param page_info: Current page information including search results.
+        :return: Extracted key information.
+        """
+        try:
+            utils.print_with_color(f"검색 결과에서 핵심 정보를 추출합니다: {search_query}", "yellow")
+            
+            # Get current page information
+            html_source = self._extract_interactive_elements()
+            accumulated_summary = self._accumulated_info.get_summary()
+            
+            # Create extraction prompt
+            extraction_prompt = [
+                {"role": "system", "content": f"""You are an expert at extracting key information from search results.
+
+**Current search query:** {search_query}
+
+**Current page information:**
+- Title: {page_info.get('current_page', {}).get('title', '')}
+- URL: {page_info.get('current_page', {}).get('url', '')}
+
+**Current page interactive elements:**
+{html_source}
+
+**Previously accumulated information:**
+{accumulated_summary}
+
+**Original user request:**
+{self.context.get(ContextNames.REQUEST)}
+
+**Extraction guidelines:**
+1. **Movie titles**: Extract exact movie titles, release dates, ratings
+2. **Showtimes**: Extract theater names, times, dates, prices
+3. **Product info**: Extract product names, prices, availability
+4. **General info**: Extract any relevant facts, dates, names, locations
+5. **Links/URLs**: Extract important links or URLs
+
+**Response format:**
+```json
+{{
+    "extracted_info": [
+        {{"key": "movie_title", "value": "Exact movie title", "confidence": "high|medium|low"}},
+        {{"key": "release_date", "value": "2024-01-15", "confidence": "high|medium|low"}},
+        {{"key": "theater", "value": "Megabox", "confidence": "high|medium|low"}}
+    ],
+    "search_summary": "Brief summary of what was found",
+    "next_action_suggestion": "What should be done next based on this information"
+}}
+```"""},
+                {"role": "user", "content": f"Extract key information from the search results for '{search_query}'. Focus on information that will help complete the user's request: {self.context.get(ContextNames.REQUEST)}"}
+            ]
+            
+            # Get LLM's extraction
+            extraction_response, _ = self.host_agent.get_response(extraction_prompt, "HOSTAGENT", use_backup_engine=True)
+            extraction_json = self.host_agent.response_to_dict(extraction_response)
+            
+            extracted_info = extraction_json.get("extracted_info", [])
+            search_summary = extraction_json.get("search_summary", "")
+            next_action = extraction_json.get("next_action_suggestion", "")
+            
+            # Add to accumulated info
+            search_info = {
+                "query": search_query,
+                "summary": search_summary,
+                "timestamp": time.time(),
+                "url": page_info.get('current_page', {}).get('url', '')
+            }
+            self._accumulated_info.add_search_result(search_info)
+            
+            for info in extracted_info:
+                self._accumulated_info.add_extracted_info(info)
+            
+            utils.print_with_color(f"핵심 정보 추출 완료: {len(extracted_info)}개 항목", "green")
+            utils.print_with_color(f"검색 요약: {search_summary}", "cyan")
+            utils.print_with_color(f"다음 액션 제안: {next_action}", "yellow")
+            
+            return {
+                "extracted_info": extracted_info,
+                "search_summary": search_summary,
+                "next_action_suggestion": next_action,
+                "accumulated_summary": self._accumulated_info.get_summary()
+            }
+            
+        except Exception as e:
+            utils.print_with_color(f"핵심 정보 추출 실패: {e}", "red")
+            return {
+                "extracted_info": [],
+                "search_summary": "Extraction failed",
+                "next_action_suggestion": "Continue with current plan",
+                "accumulated_summary": self._accumulated_info.get_summary()
+            }
+
+    def _request_new_plan_with_accumulated_info(self, current_step: Dict, page_info: Dict[str, Any], execution_results: List[Dict]) -> None:
+        """
+        Request a new plan based on accumulated information.
+        :param current_step: The current step (failed or successful).
+        :param page_info: Current page information.
+        :param execution_results: List of previous execution results.
+        """
+        try:
+            utils.print_with_color("누적된 정보를 바탕으로 새로운 플랜을 요청합니다.", "yellow")
+            
+            # Get current page information
+            html_source = self._extract_interactive_elements()
+            accumulated_summary = self._accumulated_info.get_summary()
+            
+            # Create new plan prompt
+            new_plan_prompt = [
+                {"role": "system", "content": f"""You are a web automation expert creating a new plan based on accumulated information.
+
+**CRITICAL: Always analyze the current URL and page title first to understand the current state.**
+
+**URL Analysis Guidelines:**
+- If URL contains "search_query=" or "q=" → Search has already been performed
+- If URL contains "results" → You are on search results page
+- If URL contains "watch?v=" → You are on a video page
+- If URL is a homepage (e.g., youtube.com, naver.com) → You need to search
+- If URL contains specific content → You may already be on the target page
+
+**Page Title Analysis:**
+- If title contains search terms → Search has likely been completed
+- If title shows "Results" or "검색결과" → You are on search results page
+- If title shows specific content → You may already be on target content
+
+**HTML ELEMENTS ANALYSIS GUIDE:**
+
+**1. CLICKABLE ELEMENTS:**
+- Look for buttons, links, and interactive elements
+- Use the exact text content for clicking
+- Prefer elements with specific IDs or classes
+- For navigation: look for menu items, navigation links
+- For actions: look for buttons like "Search", "Submit", "Play", etc.
+
+**2. INPUT ELEMENTS:**
+- Identify search boxes, form fields, text inputs
+- Use the ID, name, or placeholder text as selector
+- For search: look for input with type="search" or placeholder containing "search"
+- For forms: identify required fields and submit buttons
+
+**3. IMPORTANT TEXT CONTENT:**
+- Check headings (H1, H2, H3) for page context
+- Look for error messages, success messages, or status text
+- Identify page descriptions and meta information
+- Use this to understand what page you're on and what's available
+
+**4. FORM ELEMENTS:**
+- Identify forms and their submission methods
+- Look for form actions and methods
+- Understand what data needs to be submitted
+
+**Current step analysis:**
+- Function: {current_step.get('function', '')}
+- Arguments: {current_step.get('args', {})}
+- Status: {"successful" if current_step.get('success', False) else "failed"}
+- Result: {current_step.get('result', '')}
+- Error: {current_step.get('error', '')}
+
+**Current page information:**
+- Title: {page_info.get('current_page', {}).get('title', '')}
+- URL: {page_info.get('current_page', {}).get('url', '')}
+
+**Current page interactive elements:**
+{html_source}
+
+**Accumulated information from previous analyses:**
+{accumulated_summary}
+
+**Previous execution results:**
+{self._summarize_execution_results(execution_results)}
+
+**Original user request:**
+{self.context.get(ContextNames.REQUEST)}
+
+**PLANNING REQUIREMENTS:**
+1. **Step-by-step planning**: First, write your plan as numbered steps in the Thought section
+2. **Consistency check**: Ensure your WebPlan exactly matches your numbered steps
+3. **Clear reasoning**: Explain why each step is necessary and how it contributes to the goal
+4. **Use accumulated info**: Incorporate all previously extracted information from LLM analysis
+5. **Build on success**: If current step was successful, continue from there
+6. **Learn from failures**: If current step failed, create a better approach
+7. **Avoid redundancy**: Don't include steps that have already been completed
+
+**Planning guidelines:**
+1. **Use accumulated information**: Incorporate all previously extracted information from LLM analysis
+2. **Build on success**: If current step was successful, continue from there
+3. **Learn from failures**: If current step failed, create a better approach
+4. **Be specific**: Use exact information from accumulated data
+5. **Complete the task**: Ensure the plan will fulfill the user's request
+6. **Information gathering**: If any required information is missing or unclear, include search steps to gather it
+   - Use `navigate_to_url` to go to appropriate search site
+   - Use `input_text` with appropriate search terms
+   - Let the LLM analyze search results and extract key information
+7. **Search strategy**: When searching, use specific and relevant keywords that will yield useful information
+8. **Avoid redundant steps**: Don't include steps that have already been completed based on current page state
+9. **Analyze HTML elements**: Check if the required elements (clickable/input) actually exist on the page before planning
+
+**Response format:**
+```json
+{{
+    "Observation": "Analysis of current situation and accumulated information",
+    "Thought": "Step-by-step planning process with numbered steps: 1) First step reason and method, 2) Second step reason and method, 3) Third step reason and method...",
+    "WebPlan": [
+        {{"function": "function_name", "args": {{"argument": "value"}}}},
+        ...
+    ],
+    "Comment": "Explanation of how the new plan uses accumulated information and consistency confirmation"
+}}
+```
+
+**CRITICAL: Your WebPlan must exactly match the numbered steps in your Thought section.**
+
+**Important**: You must respond in valid JSON format as specified above."""},
+                {"role": "user", "content": f"Create a new WebPlan that uses the accumulated information to complete the user's request: {self.context.get(ContextNames.REQUEST)}"}
+            ]
+            
+            # Get new plan from LLM
+            new_response, _ = self.host_agent.get_response(new_plan_prompt, "HOSTAGENT", use_backup_engine=True)
+            
+            # Parse the new response with error handling
+            max_retries = 5
+            retry_count = 0
+            success = False
+            
+            while retry_count < max_retries and not success:
+                try:
+                    if retry_count == 0:
+                        response_to_parse = new_response
+                    else:
+                        utils.print_with_color(f"새 플랜 파싱 재시도 {retry_count}...", "yellow")
+                        retry_prompt = [
+                            {"role": "system", "content": f"""Your previous response failed to parse. Please provide a new plan in the correct JSON format.
+
+**Accumulated information:**
+{accumulated_summary}
+
+**Original request:**
+{self.context.get(ContextNames.REQUEST)}
+
+**Response format:**
+```json
+{{
+    "Observation": "Brief analysis",
+    "Thought": "Reasoning",
+    "WebPlan": [
+        {{"function": "navigate_to_url", "args": {{"url": "https://example.com"}}}},
+        {{"function": "input_text", "args": {{"text": "search term", "selector": "#search", "press_enter": true}}}}
+    ],
+    "Comment": "Explanation"
+}}
+```"""},
+                            {"role": "user", "content": f"Create a new WebPlan using accumulated information: {self.context.get(ContextNames.REQUEST)}"}
+                        ]
+                        retry_response, _ = self.host_agent.get_response(retry_prompt, "HOSTAGENT", use_backup_engine=True)
+                        response_to_parse = retry_response
+                    
+                    response_json = self.host_agent.response_to_dict(response_to_parse)
+                    web_plan = response_json.get("WebPlan", [])
+                    
+                    if web_plan and isinstance(web_plan, list) and len(web_plan) > 0:
+                        utils.print_with_color(f"새 플랜 생성 성공! (시도 {retry_count + 1})", "green")
+                        
+                        observation = response_json.get("Observation", "")
+                        thought = response_json.get("Thought", "")
+                        comment = response_json.get("Comment", "")
+                        
+                        if observation:
+                            utils.print_with_color(f"Observation: {observation}", "blue")
+                        if thought:
+                            utils.print_with_color(f"Thought: {thought}", "magenta")
+                        if comment:
+                            utils.print_with_color(f"Comment: {comment}", "yellow")
+                        
+                        utils.print_with_color(f"새 플랜: {web_plan}", "cyan")
+                        
+                        # Store the new plan
+                        self._modified_plan = web_plan
+                        self._web_plan = web_plan
+                        success = True
+                    else:
+                        utils.print_with_color(f"시도 {retry_count + 1} 실패 - WebPlan이 유효하지 않음", "red")
+                        retry_count += 1
+                        
+                except Exception as parse_error:
+                    utils.print_with_color(f"시도 {retry_count + 1} 파싱 실패: {parse_error}", "red")
+                    retry_count += 1
+            
+            if not success:
+                utils.print_with_color(f"{max_retries}번 시도 후에도 새 플랜 생성 실패", "red")
+                
+        except Exception as e:
+            utils.print_with_color(f"새 플랜 요청 중 오류: {e}", "red")
+
+    def _analyze_step_and_update_info(self, step: Dict, page_info: Dict[str, Any]) -> Dict:
+        """
+        Let LLM analyze the step and decide whether to update accumulated information.
+        :param step: The step to be analyzed.
+        :param page_info: Current page information.
+        :return: Analysis result with update recommendations.
+        """
+        try:
+            utils.print_with_color(f"단계 {step.get('step', 'unknown')} 분석 중...", "yellow")
+            
+            # Get current page information
+            html_source = self._extract_interactive_elements()
+            accumulated_summary = self._accumulated_info.get_summary()
+            
+            # Create analysis prompt
+            analysis_prompt = [
+                {"role": "system", "content": f"""You are an expert at analyzing web automation steps and determining when to update accumulated information.
+
+**Current step to analyze:**
+- Function: {step.get('function', '')}
+- Arguments: {step.get('args', {})}
+- Success: {step.get('success', False)}
+- Result: {step.get('result', '')}
+
+**Current page information:**
+- Title: {page_info.get('current_page', {}).get('title', '')}
+- URL: {page_info.get('current_page', {}).get('url', '')}
+
+**Current page interactive elements:**
+{html_source}
+
+**Previously accumulated information:**
+{accumulated_summary}
+
+**Original user request:**
+{self.context.get(ContextNames.REQUEST)}
+
+**Analysis guidelines:**
+1. **Search Results**: If this step produced search results (Naver, Google, etc.), extract key information
+2. **New Information**: If new relevant information was found (movie titles, prices, dates, etc.)
+3. **Page Changes**: If the page content changed significantly and contains useful information
+4. **Task Progress**: If this step brought us closer to completing the user's request
+
+**Decision criteria:**
+- **should_update_info**: Set to true if new useful information was found
+- **should_replan**: Set to true if the new information suggests a different approach
+- **extracted_info**: Key information found (titles, prices, dates, locations, etc.)
+- **search_summary**: Brief summary of what was found (if applicable)
+
+**Response format:**
+```json
+{{
+    "should_update_info": true|false,
+    "should_replan": true|false,
+    "extracted_info": [
+        {{"key": "movie_title", "value": "Exact title", "confidence": "high|medium|low"}},
+        {{"key": "price", "value": "10000", "confidence": "high|medium|low"}}
+    ],
+    "search_summary": "Brief summary of what was found",
+    "explanation": "Why this information is important and how it helps complete the user's request"
+}}
+```"""},
+                {"role": "user", "content": f"Analyze step {step.get('step', 'unknown')} and determine if new information should be accumulated. Focus on information that helps complete: {self.context.get(ContextNames.REQUEST)}"}
+            ]
+            
+            # Get LLM's analysis
+            analysis_response, _ = self.host_agent.get_response(analysis_prompt, "HOSTAGENT", use_backup_engine=True)
+            analysis_json = self.host_agent.response_to_dict(analysis_response)
+            
+            should_update_info = analysis_json.get("should_update_info", False)
+            should_replan = analysis_json.get("should_replan", False)
+            extracted_info = analysis_json.get("extracted_info", [])
+            search_summary = analysis_json.get("search_summary", "")
+            explanation = analysis_json.get("explanation", "")
+            
+            utils.print_with_color(f"LLM 분석 결과: 정보 업데이트={should_update_info}, 계획 수정={should_replan}", "cyan")
+            if explanation:
+                utils.print_with_color(f"분석 설명: {explanation}", "cyan")
+            
+            return {
+                "should_update_info": should_update_info,
+                "should_replan": should_replan,
+                "extracted_info": extracted_info,
+                "search_summary": search_summary,
+                "explanation": explanation
+            }
+            
+        except Exception as e:
+            utils.print_with_color(f"단계 분석 실패: {e}", "red")
+            return {
+                "should_update_info": False,
+                "should_replan": False,
+                "extracted_info": [],
+                "search_summary": "",
+                "explanation": f"Analysis failed: {e}"
+            }
+
+    def _update_accumulated_info_from_analysis(self, analysis_result: Dict):
+        """
+        Update accumulated information based on LLM analysis.
+        :param analysis_result: The analysis result from the LLM.
+        """
+        try:
+            # Add extracted information
+            for info in analysis_result.get("extracted_info", []):
+                self._accumulated_info.add_extracted_info(info)
+                utils.print_with_color(f"추출된 정보 추가: {info.get('key', 'Unknown')} = {info.get('value', 'No value')}", "green")
+            
+            # Add search summary if available
+            if analysis_result.get("search_summary"):
+                search_info = {
+                    "query": "LLM analyzed search",
+                    "summary": analysis_result["search_summary"],
+                    "timestamp": time.time(),
+                    "url": self._selenium_receiver.driver.current_url if self._selenium_receiver else ""
+                }
+                self._accumulated_info.add_search_result(search_info)
+                utils.print_with_color(f"검색 요약 추가: {analysis_result['search_summary']}", "green")
+            
+            utils.print_with_color("누적 정보 업데이트 완료", "green")
+            
+        except Exception as e:
+            utils.print_with_color(f"누적 정보 업데이트 실패: {e}", "red")
