@@ -16,6 +16,10 @@ class MainWindow(QMainWindow):
         self.p = None
         self.helper = None
         self.threadpool = QThreadPool()
+        
+        # 드래그 기능을 위한 변수들
+        self.drag_start_position = None
+        
         self.setWindowTitle("INO")
 
         icon = QIcon()
@@ -180,6 +184,7 @@ class MainWindow(QMainWindow):
         self.character.setObjectName("character")
         self.character.setAlignment(Qt.AlignCenter | Qt.AlignBottom)
         self.character.setFixedSize(200, 200)
+        self.character.setCursor(Qt.PointingHandCursor)  # 드래그 가능한 커서
         
         # 캐릭터 이미지 경로 설정
         assets_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
@@ -498,6 +503,34 @@ class MainWindow(QMainWindow):
         self.question_text_input.clear()
         self.next_instruction(question)
 
+    def mousePressEvent(self, event):
+        """캐릭터 영역에서 마우스 클릭 시 드래그 시작 위치 저장"""
+        if event.button() == Qt.LeftButton:
+            # 캐릭터 영역 내에서 클릭했는지 확인
+            character_rect = self.character.geometry()
+            if character_rect.contains(event.pos()):
+                self.drag_start_position = event.globalPos() - self.frameGeometry().topLeft()
+                # 드래그 가능한 상태임을 시각적으로 표시
+                self.character.setCursor(Qt.ClosedHandCursor)
+                event.accept()
+            else:
+                # 캐릭터 영역이 아니면 드래그 비활성화
+                self.drag_start_position = None
+
+    def mouseMoveEvent(self, event):
+        """마우스 드래그 시 창 위치 이동"""
+        if event.buttons() == Qt.LeftButton and self.drag_start_position:
+            new_position = event.globalPos() - self.drag_start_position
+            self.move(new_position)
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        """마우스 릴리스 시 드래그 종료"""
+        if event.button() == Qt.LeftButton:
+            self.drag_start_position = None
+            # 커서를 원래대로 복원
+            self.character.setCursor(Qt.PointingHandCursor)
+            event.accept()
 
 
 if __name__ == "__main__":
