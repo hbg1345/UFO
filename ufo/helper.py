@@ -5,11 +5,7 @@ from io import BytesIO
 from PIL import ImageGrab
 import base64
 from dotenv import load_dotenv
-import queue
-import pyaudio
-from google.cloud import speech
-from google.api_core import exceptions
-from utils import speak_text, recognize_speech_streaming
+from stt import recognize_speech_streaming
 load_dotenv()
 
 
@@ -20,12 +16,14 @@ Each time you will be given a screenshot. Use it to determine the next action th
 Each response consists of a step(int), an instruction(string), and is_done(boolean).
 step starts from 1 and increases by 1 for each response.
 instruction is the next action they need to take. It must be written in Korean.
-Each instruction should be composed of 1 to 3 sentences.
+Each instruction should be composed of 1 to 3 sentences and be no more than 60 characters.
 Avoid technical jargon; use simple expressions elderly people can understand.
 If the user did not complete the previous step correctly, guide them through it again in a more detailed and easy-to-understand manner.
+If the user says they want to listen to music, guide them to listen on YouTube.
 You must check the given screenshot to determine the next action they need to take.
 Assume the user does not know basic computer skills, and explain each step in a detailed and friendly manner.
-When referring to icons or buttons that need to be clicked, include information such as their location color, and shape.
+When referring to icons or buttons that need to be clicked, include detailed information such as their location, color, and shape.
+When the user needs to click an icon on the desktop, instruct them to double-click it quickly.
 When the task is complete, set is_done to True.
 If the user asks a question that is not related to using the computer, set is_done to True.
 """
