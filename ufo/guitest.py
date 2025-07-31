@@ -40,6 +40,7 @@ class MainWindow(QMainWindow):
         self.info_text.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.info_text.setObjectName("info_text")
         self.info_text.setWordWrap(True)
+        self.info_text.setTextFormat(Qt.RichText)  # Rich Text 모드 활성화
 
         self.command_text_input = QPlainTextEdit()
         self.command_text_input.setPlaceholderText("여기에 요청하고 싶은 일을 \n입력해 주세요.\n음성 인식 버튼을 눌러 \n말로 요청할 수도 있어요.")
@@ -61,12 +62,12 @@ class MainWindow(QMainWindow):
         self.main_btns = QWidget()
         self.main_btns.setFixedSize(290, 34)  # 테두리 공간 포함하여 34px로 증가
 
-        self.command_btn = QPushButton("요청하기")
+        self.command_btn = QPushButton("인터넷 사용")
         self.command_btn.setFixedSize(138, 30)
         self.command_btn.pressed.connect(self.start_process)
         self.command_btn.setCursor(Qt.PointingHandCursor)
 
-        self.help_btn = QPushButton("도움받기")
+        self.help_btn = QPushButton("컴퓨터 도움말")
         self.help_btn.setFixedSize(138, 30)
         self.help_btn.pressed.connect(self.start_help)
         self.help_btn.setCursor(Qt.PointingHandCursor)
@@ -330,7 +331,12 @@ class MainWindow(QMainWindow):
         self.character.show()
         
         self.text_box_layout.setCurrentIndex(0)
-        self.info_text.setText("컴퓨터 조작을 요청하고 싶으시면 \n요청하기 버튼을 눌러 주세요. \n컴퓨터 사용 도움말이 필요하면 \n도움받기 버튼을 눌러 주세요.")
+        self.info_text.setText("""
+            <p>인터넷 사용을 요청하고 싶으시면<br>
+            <b>인터넷 사용</b> 버튼을 눌러 주세요.<br>
+            컴퓨터 사용 도움말이 필요하면<br>
+            <b>컴퓨터 도움말</b> 버튼을 눌러 주세요.</p>
+        """)
         self.command_text_input.clear()
         self.help_text_input.clear()
         self.question_text_input.clear()
@@ -371,7 +377,7 @@ class MainWindow(QMainWindow):
             return
 
         self.text_box_layout.setCurrentIndex(0)
-        self.info_text.setText("잠시만 기다려 주세요...")   
+        self.info_text.setText("<p>잠시만 기다려 주세요...</p>")   
         self.command_btns.hide()
         self.cancel_btn.show()
 
@@ -446,7 +452,7 @@ class MainWindow(QMainWindow):
     def start_agent(self, request):
         self.helper = Helper()
         self.text_box_layout.setCurrentIndex(0)
-        self.message("잠시만 기다려 주세요...")
+        self.message("<p>잠시만 기다려 주세요...</p>")
         
         # UI 업데이트를 강제로 처리
         QApplication.processEvents()
@@ -461,7 +467,7 @@ class MainWindow(QMainWindow):
         self.text_box_layout.setCurrentIndex(0)
         self.question_btns.hide()
         self.helping_btns.show()
-        self.message("잠시만 기다려 주세요...")
+        self.message("<p>잠시만 기다려 주세요...</p>")
         
         # UI 업데이트를 강제로 처리
         QApplication.processEvents()
