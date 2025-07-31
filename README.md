@@ -163,11 +163,17 @@ myUFO/
 ├── ufo/                    # 핵심 UFO 프레임워크
 │   ├── agents/            # 에이전트 구현
 │   ├── automator/         # 자동화 엔진
-│   └── config/            # 설정 파일
-├── guitest.py             # 메인 GUI 애플리케이션
-├── tts.py                 # 텍스트-음성 변환 기능
+│   ├── config/            # 설정 파일
+│   ├── guitest.py         # 메인 GUI 애플리케이션
+│   ├── tts.py             # 텍스트-음성 변환 기능
+│   ├── stt.py             # 음성-텍스트 변환 기능
+│   ├── helper.py          # 도움말 시스템
+│   ├── ufo.py             # UFO 메인 모듈
+│   └── __main__.py        # UFO 실행 진입점
 ├── requirements.txt       # Python 의존성
-└── README.md             # 이 파일
+├── WEB_AUTOMATION_GUIDE.md # 웹 자동화 가이드
+├── README.md             # 이 파일
+└── .env                  # 환경 변수 (API 키 등)
 ```
 
 ---
@@ -246,16 +252,6 @@ python guitest.py
 - 웹 자동화 알고리즘
 - 문서화
 - 테스트
-
----
-
-## 📚 문서
-
-- [설치 가이드](docs/installation.md)
-- [설정 가이드](docs/configuration.md)
-- [음성 명령 참조](docs/voice-commands.md)
-- [웹 자동화 예제](docs/examples.md)
-- [문제 해결](docs/troubleshooting.md)
 
 ---
 
