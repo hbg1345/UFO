@@ -380,8 +380,10 @@ class MainWindow(QMainWindow):
     def _start_ufo_process(self, args):
         """UFO 프로세스를 시작하는 공통 함수"""
 
-        if len(args) == 2 and args[1] == "":
-            return
+        if len(args) == 2:
+            self.user_request = args[1]
+            if self.user_request == "":
+                return
 
         self.text_box_layout.setCurrentIndex(0)
         self.info_text.setText("<p>잠시만 기다려 주세요...</p>")
@@ -409,6 +411,9 @@ class MainWindow(QMainWindow):
         self.p.readyReadStandardError.connect(self.handle_stderr)
         #self.p.stateChanged.connect(self.handle_state)
         self.p.finished.connect(self.process_finished)
+
+        if self.user_request != "":
+            self.message(f"<b>\"{self.user_request}\"</b> 요청을 수행합니다...")
         
         # UFO 모듈 실행
         cmd_args = ["-m", "ufo"] + args
@@ -417,11 +422,12 @@ class MainWindow(QMainWindow):
     def handle_stdout(self):
         data = self.p.readAllStandardOutput()
         stdout = bytes(data).decode("utf8", errors="replace")
-        if stdout.startswith("input:"):
+        if "음성 인식을 시작합니다" in stdout:
+            self.message("음성 인식 중이에요. 하고 싶은 일을 말씀해 주세요!")
+
+        elif stdout.startswith("input:"):
             self.user_request = stdout.split(":")[1].strip()
-            self.message(f"요청 내용: {self.user_request}")
-        else:
-            self.message(f"요청 내용: {self.user_request}\n{stdout}")
+            self.message(f"<b>\"{self.user_request}\"</b> 요청을 수행합니다...")
 
     def handle_stderr(self):
         data = self.p.readAllStandardError()
@@ -497,7 +503,7 @@ class MainWindow(QMainWindow):
         self.question_btns.hide()
         self.message("음성 인식 중이에요. 궁금한 내용을 말씀해 주세요!")
         question = recognize_speech_streaming()
-        self.message(f"question: {question}")
+        self.message(f"<b>\"{question}\"</b>")
         self.next_instruction(question)
 
     def submit_question_text(self):
