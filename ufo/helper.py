@@ -5,7 +5,7 @@ from io import BytesIO
 from PIL import ImageGrab
 import base64
 from dotenv import load_dotenv
-from stt import recognize_speech_streaming
+from ufo import stt
 load_dotenv()
 
 
@@ -46,7 +46,7 @@ class Helper():
         ]
 
     def get_request(self):
-        request = recognize_speech_streaming()
+        request = stt.recognize_speech_streaming()
         return request
 
     def first_instruction(self, query):
