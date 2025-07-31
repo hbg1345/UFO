@@ -54,7 +54,7 @@ class Helper():
         encoded_screenshot = self.take_screenshot()
 
         response = self.client.responses.parse(
-            model = "gpt-4o-mini",
+            model = "gpt-4o-2024-08-06",
             input = [
                 {
                     "role": "system",
@@ -81,7 +81,7 @@ class Helper():
         encoded_screenshot = self.take_screenshot()
 
         response = self.client.responses.parse(
-            model = "gpt-4o-mini",
+            model = "gpt-4o-2024-08-06",
             input = [
                 {
                     "role": "user",
