@@ -91,6 +91,28 @@ API_MODEL: "gpt-4o"
 API_DEPLOYMENT_ID: "YOUR_AOAI_DEPLOYMENT"
 ```
 
+### 🎤 2-1단계: 음성 인식 API 키 설정
+음성 인식 기능을 사용하려면 `.env` 파일에 다음 API 키들을 설정해야 합니다:
+
+```powershell
+# .env 파일 생성
+notepad .env
+```
+
+`.env` 파일에 다음 내용을 추가하세요:
+
+```env
+# Google Cloud Speech-to-Text API 키
+GOOGLE_APPLICATION_CREDENTIALS=path/to/your/google-credentials.json
+
+# AssemblyAI 음성 인식 API 키
+AssemblyAI_KEY=your-assemblyai-api-key
+```
+
+#### API 키 획득 방법:
+- **Google Cloud Speech-to-Text**: [Google Cloud Console](https://console.cloud.google.com/)에서 프로젝트를 생성하고 Speech-to-Text API를 활성화한 후 서비스 계정 키를 다운로드
+- **AssemblyAI**: [AssemblyAI 웹사이트](https://www.assemblyai.com/)에서 계정을 생성하고 API 키를 발급받으세요
+
 ### 🎉 3단계: 애플리케이션 실행
 
 #### 옵션 1: GUI 인터페이스 (권장)
@@ -270,14 +292,6 @@ python guitest.py
 - **AssemblyAI**: 음성 인식 기능
 - **Selenium**: 웹 자동화 프레임워크
 - **PyQt5**: GUI 프레임워크
-
----
-
-## 📞 지원
-
-- **GitHub Issues**: [버그 신고 및 기능 요청](https://github.com/your-username/myUFO/issues)
-- **문서**: [완전한 문서](docs/)
-- **이메일**: your-email@example.com
 
 ---
 
