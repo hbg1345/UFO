@@ -414,12 +414,7 @@ class MainWindow(QMainWindow):
     def handle_stdout(self):
         data = self.p.readAllStandardOutput()
         stdout = bytes(data).decode("utf8", errors="replace")
-        if stdout.startswith("STT:"):
-            message = stdout.split(":")[1]
-            self.message(message)
-            self.speak(message)
-        else:
-            self.message(stdout)
+        self.message(stdout)
 
     def handle_stderr(self):
         data = self.p.readAllStandardError()
@@ -458,6 +453,7 @@ class MainWindow(QMainWindow):
         self.helper = Helper()
         self.text_box_layout.setCurrentIndex(0)
         self.message("<p>잠시만 기다려 주세요...</p>")
+        self.speak("잠시만 기다려 주세요")
         
         # UI 업데이트를 강제로 처리
         QApplication.processEvents()
