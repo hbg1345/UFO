@@ -1,11 +1,12 @@
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QPushButton, QPlainTextEdit,
                                 QVBoxLayout, QHBoxLayout, QWidget, QDesktopWidget, QLabel, QStackedLayout, QLineEdit)
-from PyQt5.QtCore import QProcess, QProcessEnvironment, Qt, QSize, QTimer
+from PyQt5.QtCore import QProcess, QProcessEnvironment, Qt, QSize, QTimer, QThreadPool
 from PyQt5.QtGui import QIcon, QPixmap
 import sys
 import os
 from helper import Helper
 from stt import recognize_speech_streaming
+from tts import SpeakThread
 
 class MainWindow(QMainWindow):
 
@@ -14,7 +15,7 @@ class MainWindow(QMainWindow):
 
         self.p = None
         self.helper = None
-
+        self.threadpool = QThreadPool()
         self.setWindowTitle("INO")
 
         icon = QIcon()
@@ -39,6 +40,7 @@ class MainWindow(QMainWindow):
         self.info_text.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.info_text.setObjectName("info_text")
         self.info_text.setWordWrap(True)
+        self.info_text.setTextFormat(Qt.RichText)  # Rich Text 모드 활성화
 
         self.command_text_input = QPlainTextEdit()
         self.command_text_input.setPlaceholderText("여기에 요청하고 싶은 일을 \n입력해 주세요.\n음성 인식 버튼을 눌러 \n말로 요청할 수도 있어요.")
@@ -60,12 +62,12 @@ class MainWindow(QMainWindow):
         self.main_btns = QWidget()
         self.main_btns.setFixedSize(290, 34)  # 테두리 공간 포함하여 34px로 증가
 
-        self.command_btn = QPushButton("요청하기")
+        self.command_btn = QPushButton("인터넷 사용")
         self.command_btn.setFixedSize(138, 30)
         self.command_btn.pressed.connect(self.start_process)
         self.command_btn.setCursor(Qt.PointingHandCursor)
 
-        self.help_btn = QPushButton("도움받기")
+        self.help_btn = QPushButton("컴퓨터 도움말")
         self.help_btn.setFixedSize(138, 30)
         self.help_btn.pressed.connect(self.start_help)
         self.help_btn.setCursor(Qt.PointingHandCursor)
@@ -188,10 +190,6 @@ class MainWindow(QMainWindow):
         # 애니메이션 타이머 설정
         self.animation_timer = QTimer()
         self.animation_timer.timeout.connect(self.update_character_animation)
-        self.animation_timer.start(800)  # 1초마다 이미지 변경
-        
-        # 초기 이미지 설정
-        self.update_character_animation()
     
 
         l = QVBoxLayout()
@@ -212,6 +210,7 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(w)
         self.reset_to_initial_state()
+        self.speak("안녕하세요! 저는 이노예요")
 
     def apply_styles(self):
         """QSS 스타일 적용"""
@@ -330,10 +329,14 @@ class MainWindow(QMainWindow):
         """모든 버튼을 초기 상태로 복귀"""
         # 애니메이션 다시 시작 및 캐릭터 표시
         self.character.show()
-        self.animation_timer.start(1000)
         
         self.text_box_layout.setCurrentIndex(0)
-        self.info_text.setText("컴퓨터 조작을 요청하고 싶으시면 \n요청하기 버튼을 눌러 주세요. \n컴퓨터 사용 도움말이 필요하면 \n도움받기 버튼을 눌러 주세요.")
+        self.info_text.setText("""
+            <p>인터넷 사용을 요청하고 싶으시면<br>
+            <b>인터넷 사용</b> 버튼을 눌러 주세요.<br>
+            컴퓨터 사용 도움말이 필요하면<br>
+            <b>컴퓨터 도움말</b> 버튼을 눌러 주세요.</p>
+        """)
         self.command_text_input.clear()
         self.help_text_input.clear()
         self.question_text_input.clear()
@@ -344,6 +347,17 @@ class MainWindow(QMainWindow):
         self.cancel_btn.hide()
         self.main_btns.show()
         self.exit_btn.show()
+
+    def speak(self, text: str):
+        self.animation_timer.start(500)
+        speak_thread = SpeakThread(text)
+        self.threadpool.start(speak_thread)
+        speak_thread.signals.finished.connect(self.stop_animation)
+    
+    def stop_animation(self):
+        self.animation_timer.stop()
+        self.current_character = 0
+        self.update_character_animation()
 
     def message(self, s):
         self.info_text.setText(s)
@@ -363,6 +377,7 @@ class MainWindow(QMainWindow):
             return
 
         self.text_box_layout.setCurrentIndex(0)
+        self.info_text.setText("<p>잠시만 기다려 주세요...</p>")   
         self.command_btns.hide()
         self.cancel_btn.show()
 
@@ -394,7 +409,12 @@ class MainWindow(QMainWindow):
     def handle_stdout(self):
         data = self.p.readAllStandardOutput()
         stdout = bytes(data).decode("utf8", errors="replace")
-        self.message(stdout)
+        if stdout.startswith("STT:"):
+            message = stdout.split(":")[1]
+            self.message(message)
+            self.speak(message)
+        else:
+            self.message(stdout)
 
     def handle_stderr(self):
         data = self.p.readAllStandardError()
@@ -421,34 +441,44 @@ class MainWindow(QMainWindow):
         self.cancel_btn.show()
 
     def start_help_voice(self):
+        self.text_box_layout.setCurrentIndex(0)
         self.help_btns.hide()
-        self.start_agent(recognize_speech_streaming())
+        self.message("음성 인식 중이에요. 하고 싶은 일을 말씀해 주세요!")
+        QApplication.processEvents()
+        request = recognize_speech_streaming()
+        self.message(request)
+        self.start_agent(request)
     
     def start_agent(self, request):
         self.helper = Helper()
         self.text_box_layout.setCurrentIndex(0)
-        self.message("잠시만 기다려 주세요...")
+        self.message("<p>잠시만 기다려 주세요...</p>")
         
         # UI 업데이트를 강제로 처리
         QApplication.processEvents()
         
         response = self.helper.first_instruction(request)
         self.message(response.instruction)
+        self.speak(response.instruction)
         self.help_btns.hide()
         self.helping_btns.show()
     
     def next_instruction(self, query="이 화면에서 뭘 해야해?"):
-        self.message("잠시만 기다려 주세요...")
+        self.text_box_layout.setCurrentIndex(0)
+        self.question_btns.hide()
+        self.helping_btns.show()
+        self.message("<p>잠시만 기다려 주세요...</p>")
         
         # UI 업데이트를 강제로 처리
         QApplication.processEvents()
         
         response = self.helper.next_instruction(query)
         self.message(response.instruction)
+        self.speak(response.instruction)
         
         # 응답이 완료되었는지 확인하여 버튼 상태 변경
         if hasattr(response, 'is_done') and response.is_done:
-            self.end_agent()
+            self.reset_to_initial_state()
 
     def start_question(self):
         self.text_box_layout.setCurrentIndex(3)
@@ -465,6 +495,7 @@ class MainWindow(QMainWindow):
 
     def submit_question_text(self):
         question = self.question_text_input.toPlainText().strip()
+        self.question_text_input.clear()
         self.next_instruction(question)
 
 
