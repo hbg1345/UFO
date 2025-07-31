@@ -46,7 +46,7 @@ args.add_argument(
 parsed_args = args.parse_args()
 
 
-def main(argv=None):
+def main():
     """
     Main function to run the UFO system.
 
@@ -59,10 +59,6 @@ def main(argv=None):
     To use batch mode that follows a plan file or folder, run the following command:
     python -m ufo -t task_name -m batch_normal -p path_to_plan_file_or_folder
     """
-
-    # argv가 None이면 sys.argv[1:]를, 아니면 전달받은 리스트를 파싱
-    parsed_args = args.parse_args(argv)
-    
     sessions = SessionFactory().create_session(
         task=parsed_args.task,
         mode=parsed_args.mode,

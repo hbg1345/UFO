@@ -51,6 +51,3 @@ google-key.json
 total-media-412404-cbd557bf8eab.json
 *.mp3
 backup.yaml
-
-/dist/
-/build/
