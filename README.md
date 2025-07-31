@@ -1,9 +1,9 @@
 <!-- markdownlint-disable MD033 MD041 -->
 <h1 align="center">
-  <b>myUFO</b> <img src="assets/ufo_blue.png" alt="UFO logo" width="40"> :&nbsp;Enhanced&nbsp;Web&nbsp;Automation&nbsp;with&nbsp;GUI&nbsp;Interface
+  <b>myUFO</b> <img src="assets/ufo_blue.png" alt="UFO logo" width="40"> :&nbsp;GUI&nbsp;인터페이스가&nbsp;있는&nbsp;향상된&nbsp;웹&nbsp;자동화&nbsp;시스템
 </h1>
 <p align="center">
-  <em>Enhanced web automation system based on UFO framework with HTML structure analysis, GUI interface, and voice recognition capabilities.</em>
+  <em>HTML 구조 분석, GUI 인터페이스, 음성 인식 기능을 갖춘 UFO 프레임워크 기반의 향상된 웹 자동화 시스템</em>
 </p>
 
 
@@ -22,55 +22,55 @@
 
 ---
 
-## ✨ Key Features & Improvements
+## ✨ 주요 기능 및 개선사항
 
-### 🌐 Enhanced Web Automation
-- **HTML Structure Analysis**: Unlike the original UFO that relies only on screenshots, our system analyzes the HTML structure of web pages for more accurate and efficient web automation
-- **Selenium Integration**: Advanced web automation using Selenium WebDriver with intelligent element detection
-- **Smart Element Recognition**: Combines visual and HTML-based element detection for better accuracy
+### 🌐 향상된 웹 자동화
+- **HTML 구조 분석**: 스크린샷에만 의존하던 기존 UFO와 달리, 우리 시스템은 웹 페이지의 HTML 구조를 분석하여 더 정확하고 효율적인 웹 자동화를 수행합니다
+- **Selenium 통합**: 지능형 요소 감지 기능이 있는 Selenium WebDriver를 사용한 고급 웹 자동화
+- **스마트 요소 인식**: 시각적 요소 감지와 HTML 기반 요소 감지를 결합하여 더 나은 정확도 제공
 
-### 🖥️ User-Friendly GUI Interface
-- **Modern Desktop Application**: Intuitive graphical user interface built with PyQt5
-- **Real-time Status Updates**: Visual feedback on automation progress and status
-- **Easy Task Management**: Simple interface for managing and executing web automation tasks
+### 🖥️ 사용자 친화적 GUI 인터페이스
+- **현대적인 데스크톱 애플리케이션**: PyQt5로 구축된 직관적인 그래픽 사용자 인터페이스
+- **실시간 상태 업데이트**: 자동화 진행 상황과 상태에 대한 시각적 피드백
+- **간편한 작업 관리**: 웹 자동화 작업을 관리하고 실행하기 위한 간단한 인터페이스
 
-### 🎤 Voice Recognition
-- **Speech-to-Text**: Built-in voice recognition for hands-free operation
-- **Natural Language Processing**: Process voice commands and convert them to automation tasks
-- **Multi-language Support**: Support for Korean and English voice commands
+### 🎤 음성 인식
+- **음성-텍스트 변환**: 핸즈프리 작업을 위한 내장 음성 인식
+- **자연어 처리**: 음성 명령을 처리하고 자동화 작업으로 변환
+- **다국어 지원**: 한국어 및 영어 음성 명령 지원
 
-### 📚 Intelligent Help System
-- **Context-Aware Assistance**: Provides relevant help based on current automation context
-- **Step-by-Step Guidance**: Interactive help system that guides users through complex tasks
-- **Knowledge Base Integration**: Access to comprehensive documentation and examples
+### 📚 지능형 도움말 시스템
+- **컨텍스트 인식 지원**: 현재 자동화 컨텍스트에 기반한 관련 도움말 제공
+- **단계별 가이드**: 복잡한 작업을 안내하는 대화형 도움말 시스템
+- **지식 베이스 통합**: 포괄적인 문서 및 예제에 대한 접근
 
 ---
 
-## 🚀 Quick Start
+## 🚀 빠른 시작
 
-### 🛠️ Step 1: Installation
-myUFO requires **Python >= 3.10** running on **Windows OS >= 10**. Install by running:
+### 🛠️ 1단계: 설치
+myUFO는 **Windows OS >= 10**에서 실행되는 **Python >= 3.10**이 필요합니다. 다음 명령을 실행하여 설치하세요:
 
 ```powershell
-# Clone the repository
+# 저장소 복제
 git clone https://github.com/your-username/myUFO.git
 cd myUFO
 
-# Install requirements
+# 요구사항 설치
 pip install -r requirements.txt
 ```
 
-### ⚙️ Step 2: Configure LLMs
-Create your configuration file by copying the template:
+### ⚙️ 2단계: LLM 설정
+템플릿을 복사하여 설정 파일을 생성하세요:
 
 ```powershell
 copy ufo\config\config.yaml.template ufo\config\config.yaml
 notepad ufo\config\config.yaml
 ```
 
-Configure your LLM settings for both HOST_AGENT and APP_AGENT:
+HOST_AGENT와 APP_AGENT 모두에 대한 LLM 설정을 구성하세요:
 
-#### OpenAI Configuration
+#### OpenAI 설정
 ```yaml
 VISUAL_MODE: True
 API_TYPE: "openai"
@@ -80,7 +80,7 @@ API_VERSION: "2024-02-15-preview"
 API_MODEL: "gpt-4o"
 ```
 
-#### Azure OpenAI Configuration
+#### Azure OpenAI 설정
 ```yaml
 VISUAL_MODE: True
 API_TYPE: "aoai"
@@ -91,195 +91,195 @@ API_MODEL: "gpt-4o"
 API_DEPLOYMENT_ID: "YOUR_AOAI_DEPLOYMENT"
 ```
 
-### 🎉 Step 3: Launch the Application
+### 🎉 3단계: 애플리케이션 실행
 
-#### Option 1: GUI Interface (Recommended)
+#### 옵션 1: GUI 인터페이스 (권장)
 ```powershell
 python guitest.py
 ```
 
-#### Option 2: Command Line Interface
+#### 옵션 2: 명령줄 인터페이스
 ```powershell
 python -m ufo --task <your_task_name>
 ```
 
-### 🎤 Step 4: Using Voice Commands
-1. Click the microphone button in the GUI
-2. Speak your request clearly
-3. The system will process your voice command and execute the automation
+### 🎤 4단계: 음성 명령 사용
+1. GUI에서 마이크 버튼을 클릭하세요
+2. 요청사항을 명확하게 말씀하세요
+3. 시스템이 음성 명령을 처리하고 자동화를 실행합니다
 
 ---
 
-## 🔧 Key Differences from Original UFO
+## 🔧 기존 UFO와의 주요 차이점
 
-| Feature | Original UFO | myUFO |
-|---------|-------------|-------|
-| **Web Automation** | Screenshot-based only | HTML structure + Screenshot analysis |
-| **User Interface** | Command line only | Modern GUI + Command line |
-| **Voice Control** | Not available | Built-in voice recognition |
-| **Help System** | Documentation only | Interactive context-aware help |
-| **Element Detection** | Visual only | Visual + HTML structure |
-| **Accessibility** | Technical users | User-friendly for all levels |
-
----
-
-## 🌐 Supported Web Automation Tasks
-
-- **Search Operations**: Google, Bing, and other search engines
-- **Form Filling**: Automated form submission and data entry
-- **Navigation**: Multi-step web navigation and clicking
-- **Data Extraction**: Intelligent data collection from web pages
-- **E-commerce**: Shopping cart management and product browsing
-- **Social Media**: Automated posting and interaction
+| 기능 | 기존 UFO | myUFO |
+|------|----------|-------|
+| **웹 자동화** | 스크린샷 기반만 | HTML 구조 + 스크린샷 분석 |
+| **사용자 인터페이스** | 명령줄만 | 현대적 GUI + 명령줄 |
+| **음성 제어** | 없음 | 내장 음성 인식 |
+| **도움말 시스템** | 문서화만 | 대화형 컨텍스트 인식 도움말 |
+| **요소 감지** | 시각적만 | 시각적 + HTML 구조 |
+| **접근성** | 기술적 사용자 | 모든 수준의 사용자 친화적 |
 
 ---
 
-## 📁 Project Structure
+## 🌐 지원되는 웹 자동화 작업
+
+- **검색 작업**: Google, Bing 및 기타 검색 엔진
+- **폼 작성**: 자동화된 폼 제출 및 데이터 입력
+- **탐색**: 다단계 웹 탐색 및 클릭
+- **데이터 추출**: 웹 페이지에서 지능형 데이터 수집
+- **전자상거래**: 쇼핑 카트 관리 및 제품 탐색
+- **소셜 미디어**: 자동화된 게시 및 상호작용
+
+---
+
+## 📁 프로젝트 구조
 
 ```
 myUFO/
-├── ufo/                    # Core UFO framework
-│   ├── agents/            # Agent implementations
-│   ├── automator/         # Automation engines
-│   └── config/            # Configuration files
-├── guitest.py             # Main GUI application
-├── tts.py                 # Text-to-speech functionality
-├── requirements.txt       # Python dependencies
-└── README.md             # This file
+├── ufo/                    # 핵심 UFO 프레임워크
+│   ├── agents/            # 에이전트 구현
+│   ├── automator/         # 자동화 엔진
+│   └── config/            # 설정 파일
+├── guitest.py             # 메인 GUI 애플리케이션
+├── tts.py                 # 텍스트-음성 변환 기능
+├── requirements.txt       # Python 의존성
+└── README.md             # 이 파일
 ```
 
 ---
 
-## 🎯 Example Use Cases
+## 🎯 사용 예시
 
-### Web Search Automation
+### 웹 검색 자동화
 ```
-Voice Command: "구글에서 인공지능 최신 뉴스 검색해줘"
-Result: Automatically opens Google, searches for AI news, and presents results
-```
-
-### Form Automation
-```
-Voice Command: "네이버 로그인 폼에 정보 입력해줘"
-Result: Fills in login forms with provided credentials
+음성 명령: "구글에서 인공지능 최신 뉴스 검색해줘"
+결과: Google을 자동으로 열고 AI 뉴스를 검색하여 결과를 제시
 ```
 
-### Multi-step Navigation
+### 폼 자동화
 ```
-Voice Command: "유튜브에서 특정 채널 구독해줘"
-Result: Navigates to YouTube, finds the channel, and subscribes
+음성 명령: "네이버 로그인 폼에 정보 입력해줘"
+결과: 제공된 자격 증명으로 로그인 폼을 작성
+```
+
+### 다단계 탐색
+```
+음성 명령: "유튜브에서 특정 채널 구독해줘"
+결과: YouTube로 이동하여 채널을 찾고 구독
 ```
 
 ---
 
-## 🔍 Technical Architecture
+## 🔍 기술적 아키텍처
 
-Our enhanced system builds upon the original UFO framework with these key improvements:
+우리의 향상된 시스템은 다음과 같은 주요 개선사항으로 기존 UFO 프레임워크를 기반으로 구축됩니다:
 
-1. **HTML Structure Analyzer**: Parses and understands web page structure for better element detection
-2. **Selenium Integration**: Advanced web automation capabilities
-3. **GUI Framework**: PyQt5-based user interface
-4. **Voice Recognition**: AssemblyAI integration for speech processing
-5. **Help System**: Context-aware assistance system
-
----
-
-## 📊 Performance Improvements
-
-- **50% faster** web element detection through HTML structure analysis
-- **90% accuracy** improvement in web automation tasks
-- **User-friendly** interface reduces learning curve by 70%
-- **Voice control** enables hands-free operation
+1. **HTML 구조 분석기**: 더 나은 요소 감지를 위해 웹 페이지 구조를 파싱하고 이해
+2. **Selenium 통합**: 고급 웹 자동화 기능
+3. **GUI 프레임워크**: PyQt5 기반 사용자 인터페이스
+4. **음성 인식**: 음성 처리를 위한 AssemblyAI 통합
+5. **도움말 시스템**: 컨텍스트 인식 지원 시스템
 
 ---
 
-## 🛠️ Development
+## 📊 성능 개선
 
-### Prerequisites
+- HTML 구조 분석을 통한 웹 요소 감지 **50% 빠름**
+- 웹 자동화 작업 **90% 정확도 향상**
+- 사용자 친화적 인터페이스로 학습 곡선 **70% 감소**
+- 음성 제어로 핸즈프리 작업 가능
+
+---
+
+## 🛠️ 개발
+
+### 사전 요구사항
 - Python 3.10+
 - Windows 10+
-- Chrome browser (for Selenium automation)
-- Microphone (for voice recognition)
+- Chrome 브라우저 (Selenium 자동화용)
+- 마이크 (음성 인식용)
 
-### Local Development
+### 로컬 개발
 ```powershell
-# Clone and setup
+# 복제 및 설정
 git clone https://github.com/your-username/myUFO.git
 cd myUFO
 pip install -r requirements.txt
 
-# Run in development mode
+# 개발 모드로 실행
 python guitest.py
 ```
 
 ---
 
-## 🤝 Contributing
+## 🤝 기여하기
 
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
+기여를 환영합니다! 자세한 내용은 [기여 가이드라인](CONTRIBUTING.md)을 참조하세요.
 
-### Areas for Contribution
-- Voice recognition improvements
-- GUI enhancements
-- Web automation algorithms
-- Documentation
-- Testing
-
----
-
-## 📚 Documentation
-
-- [Installation Guide](docs/installation.md)
-- [Configuration Guide](docs/configuration.md)
-- [Voice Commands Reference](docs/voice-commands.md)
-- [Web Automation Examples](docs/examples.md)
-- [Troubleshooting](docs/troubleshooting.md)
+### 기여 영역
+- 음성 인식 개선
+- GUI 향상
+- 웹 자동화 알고리즘
+- 문서화
+- 테스트
 
 ---
 
-## 🐛 Troubleshooting
+## 📚 문서
 
-### Common Issues
-
-**Voice Recognition Not Working**
-- Check microphone permissions
-- Ensure internet connection for AssemblyAI
-- Verify audio device settings
-
-**Web Automation Fails**
-- Update Chrome browser
-- Check Selenium WebDriver installation
-- Verify target website accessibility
-
-**GUI Not Starting**
-- Ensure PyQt5 is properly installed
-- Check Python version compatibility
-- Verify display settings
+- [설치 가이드](docs/installation.md)
+- [설정 가이드](docs/configuration.md)
+- [음성 명령 참조](docs/voice-commands.md)
+- [웹 자동화 예제](docs/examples.md)
+- [문제 해결](docs/troubleshooting.md)
 
 ---
 
-## 📄 License
+## 🐛 문제 해결
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+### 일반적인 문제
 
----
+**음성 인식이 작동하지 않음**
+- 마이크 권한 확인
+- AssemblyAI용 인터넷 연결 확인
+- 오디오 장치 설정 확인
 
-## 🙏 Acknowledgments
+**웹 자동화 실패**
+- Chrome 브라우저 업데이트
+- Selenium WebDriver 설치 확인
+- 대상 웹사이트 접근성 확인
 
-- **Microsoft UFO Team**: Original UFO framework
-- **AssemblyAI**: Voice recognition capabilities
-- **Selenium**: Web automation framework
-- **PyQt5**: GUI framework
-
----
-
-## 📞 Support
-
-- **GitHub Issues**: [Report bugs and request features](https://github.com/your-username/myUFO/issues)
-- **Documentation**: [Complete documentation](docs/)
-- **Email**: your-email@example.com
+**GUI가 시작되지 않음**
+- PyQt5가 올바르게 설치되었는지 확인
+- Python 버전 호환성 확인
+- 디스플레이 설정 확인
 
 ---
 
-<p align="center"><sub>Enhanced web automation system based on Microsoft's UFO framework</sub></p>
+## 📄 라이선스
+
+이 프로젝트는 MIT 라이선스 하에 배포됩니다 - 자세한 내용은 [LICENSE](LICENSE) 파일을 참조하세요.
+
+---
+
+## 🙏 감사의 말
+
+- **Microsoft UFO 팀**: 원본 UFO 프레임워크
+- **AssemblyAI**: 음성 인식 기능
+- **Selenium**: 웹 자동화 프레임워크
+- **PyQt5**: GUI 프레임워크
+
+---
+
+## 📞 지원
+
+- **GitHub Issues**: [버그 신고 및 기능 요청](https://github.com/your-username/myUFO/issues)
+- **문서**: [완전한 문서](docs/)
+- **이메일**: your-email@example.com
+
+---
+
+<p align="center"><sub>Microsoft의 UFO 프레임워크를 기반으로 한 향상된 웹 자동화 시스템</sub></p>
 
