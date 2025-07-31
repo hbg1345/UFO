@@ -430,7 +430,7 @@ class MainWindow(QMainWindow):
         self.reset_to_initial_state()
 
     def process_finished(self):
-        self.reset_to_initial_state()
+        self.cancel()
         self.message("요청 수행을 완료했어요!")
 
     def start_help(self):
